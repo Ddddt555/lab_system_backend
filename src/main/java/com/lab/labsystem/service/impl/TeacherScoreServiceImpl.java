@@ -70,6 +70,8 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
         int rows = scoreMapper.update(updateEntity, updateWrapper);
 
         if (rows == 0) {
+        	// 🛑【核心修复】在插入新成绩前，先物理删除之前被逻辑删除的旧记录，腾出唯一键的位置
+            scoreMapper.deleteOldSoftDeletedScores(studentNo, classNo);
             // 没更新到，说明记录不存在，执行插入
             ExpScore newScore = new ExpScore();
             newScore.setScoreNo("SC" + UUID.randomUUID().toString().substring(0, 8));

@@ -26,7 +26,7 @@ public class JwtInterceptor implements HandlerInterceptor {
         if (token != null && token.startsWith("Bearer ")) {
             token = token.substring(7);
         } else {
-            // ⚠️ 2. 如果 Header 没有，尝试从 URL 参数获取（专为 window.open 准备）
+            // ⚠️ 2. 如果 Header 没有，尝试从 URL 参数获取（专为 window.open 准备，兼容 cpolar）
             String paramToken = request.getParameter("token");
             if (paramToken != null && !paramToken.isEmpty()) {
                 token = paramToken;
@@ -51,6 +51,26 @@ public class JwtInterceptor implements HandlerInterceptor {
             } catch (Exception e) {
                 response.setStatus(401);
                 return false;
+            }
+        }
+        
+        // =========================================================
+        // ⚠️ 3. 安全规范轨：尝试解析短时效一次性票据 (Ticket)
+        // =========================================================
+        // 🛑【警告：不要删除此段逻辑】🛑
+        // 在非 cpolar 环境下，文件下载是通过 URL 携带 ticket 实现的。
+        // 如果没有这段逻辑，所有生产环境的文件下载都会被拦截并返回 401！
+        String ticket = request.getParameter("ticket");
+        if (ticket != null && !ticket.isEmpty()) {
+            String redisKey = "report:ticket:" + ticket;
+            String userInfo = stringRedisTemplate.opsForValue().get(redisKey);
+            if (userInfo != null) {
+                // 用后即焚，防止重放攻击
+                stringRedisTemplate.delete(redisKey);
+                String[] parts = userInfo.split(":");
+                request.setAttribute("currentUserNo", parts[0]);
+                request.setAttribute("currentUserRole", parts[1]);
+                return true;
             }
         }
         

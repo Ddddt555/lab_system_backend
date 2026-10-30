@@ -2,12 +2,15 @@ package com.lab.labsystem.service;
 
 import io.minio.*;
 import io.minio.http.Method;
+import io.minio.messages.Item;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -58,7 +61,7 @@ public class MinioService {
         );
     }
 
-    /** ⚠️ 步骤 6 新增：删除文件（用于失败补偿清理孤儿文件） */
+    /** ⚠️ 删除文件（用于失败补偿清理孤儿文件） */
     public void remove(String objectName) {
         try {
             minioClient.removeObject(
@@ -71,7 +74,8 @@ public class MinioService {
             System.err.println("清理 MinIO 文件失败: " + objectName + ", 原因: " + e.getMessage());
         }
     }
-    /** ⚠️ 新增：获取文件流（用于后端代理转发，避免暴露 MinIO 地址） */
+
+    /** 获取文件流（用于后端代理转发，避免暴露 MinIO 地址） */
     public java.io.InputStream getObjectStream(String objectName) throws Exception {
         return minioClient.getObject(
             io.minio.GetObjectArgs.builder()
@@ -79,5 +83,20 @@ public class MinioService {
                 .object(objectName)
                 .build()
         );
+    }
+
+    /** 
+     * 🛑【新增：获取 MinIO 所有文件列表】🛑
+     * 用于定时任务扫描并清理孤儿文件（有文件但数据库无记录）
+     */
+    public List<String> listAllFiles() throws Exception {
+        List<String> fileNames = new ArrayList<>();
+        Iterable<Result<Item>> results = minioClient.listObjects(
+                ListObjectsArgs.builder().bucket(bucketName).recursive(true).build());
+        for (Result<Item> result : results) {
+            Item item = result.get();
+            fileNames.add(item.objectName());
+        }
+        return fileNames;
     }
 }

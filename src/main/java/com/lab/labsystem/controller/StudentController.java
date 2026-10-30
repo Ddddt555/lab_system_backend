@@ -3,6 +3,12 @@ import com.lab.labsystem.annotation.RequireRole;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.BeanUtils;
@@ -18,7 +24,7 @@ import com.lab.labsystem.common.Result;
 import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
 import com.lab.labsystem.service.StudentBookingService;
-import com.lab.labsystem.service.AttendanceService; // ⚠️ 新增
+import com.lab.labsystem.service.AttendanceService;
 import com.lab.labsystem.vo.SessionVO;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -26,7 +32,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 @Tag(name = "学生端接口", description = "包含选课中心、场次预约、报告提交、密码修改等功能")
 @RestController
-@RequireRole("student") // ⚠️ 新增：该 Controller 下所有接口，必须是学生
+@RequireRole("student")
 @RequestMapping("/api/student")
 public class StudentController {
 
@@ -43,8 +49,6 @@ public class StudentController {
     @Autowired private ExpCourseMapper courseMapper;
 
     @Autowired private StudentBookingService studentBookingService;
-    
-    // ⚠️ 注入考勤 Service
     @Autowired private AttendanceService attendanceService;
 
     // ================= 0. 选课中心 =================
@@ -67,25 +71,42 @@ public class StudentController {
             allClasses = teachClassMapper.selectList(null);
         }
 
-        List<java.util.Map<String, Object>> resultList = new ArrayList<>();
+        if (allClasses.isEmpty()) {
+            if (page != null && size != null) return Result.success(new PageResult<>(0, new ArrayList<>()));
+            return Result.success(new ArrayList<>());
+        }
+
+        // 🛑【核心优化】批量查询，消灭 N+1
+        List<String> classNos = allClasses.stream().map(TeachClass::getClassNo).collect(Collectors.toList());
+        List<String> courseNos = allClasses.stream().map(TeachClass::getCourseNo).distinct().collect(Collectors.toList());
+        List<String> workNos = allClasses.stream().map(TeachClass::getWorkNo).distinct().collect(Collectors.toList());
+
+        // 1. 批量查课程
+        Map<String, String> courseMap = courseNos.isEmpty() ? new HashMap<>() : 
+                courseMapper.selectBatchIds(courseNos).stream()
+                .collect(Collectors.toMap(ExpCourse::getCourseNo, ExpCourse::getCourseName, (k1, k2) -> k1));
+
+        // 2. 批量查教师
+        Map<String, String> teacherMap = workNos.isEmpty() ? new HashMap<>() : 
+                teacherMapper.selectBatchIds(workNos).stream()
+                .collect(Collectors.toMap(Teacher::getWorkNo, Teacher::getName, (k1, k2) -> k1));
+
+        // 3. 批量查该学生选了哪些班
+        List<StudentTeachClass> selectedList = studentTeachClassMapper.selectList(
+                new QueryWrapper<StudentTeachClass>().eq("student_no", studentNo).in("class_no", classNos));
+        Set<String> selectedClassNos = selectedList.stream().map(StudentTeachClass::getClassNo).collect(Collectors.toSet());
+
+        List<Map<String, Object>> resultList = new ArrayList<>();
         for (TeachClass tc : allClasses) {
-            java.util.Map<String, Object> map = new java.util.HashMap<>();
+            Map<String, Object> map = new HashMap<>();
             map.put("classNo", tc.getClassNo());
             map.put("semester", tc.getSemester());
-
-            ExpCourse course = courseMapper.selectById(tc.getCourseNo());
-            map.put("courseName", course != null ? course.getCourseName() : "未知课程");
-
-            Teacher teacher = teacherMapper.selectById(tc.getWorkNo());
-            map.put("teacherName", teacher != null ? teacher.getName() : "未知教师");
-
-            QueryWrapper<StudentTeachClass> qw = new QueryWrapper<StudentTeachClass>()
-                    .eq("student_no", studentNo)
-                    .eq("class_no", tc.getClassNo());
-            map.put("isSelected", studentTeachClassMapper.selectCount(qw) > 0);
-
+            map.put("courseName", courseMap.getOrDefault(tc.getCourseNo(), "未知课程"));
+            map.put("teacherName", teacherMap.getOrDefault(tc.getWorkNo(), "未知教师"));
+            map.put("isSelected", selectedClassNos.contains(tc.getClassNo()));
             resultList.add(map);
         }
+        
         if (page != null && size != null) return Result.success(new PageResult<>(total, resultList));
         return Result.success(resultList);
     }
@@ -162,47 +183,77 @@ public class StudentController {
             bookingList = bookingMapper.selectList(queryWrapper);
         }
 
+        if (bookingList.isEmpty()) {
+            if (page != null && size != null) return Result.success(new PageResult<>(0, new ArrayList<>()));
+            return Result.success(new ArrayList<>());
+        }
+
+        // 🛑【核心优化】批量查询场次、项目、教师、报告
+        List<String> sessionNos = bookingList.stream().map(StudentBooking::getSessionNo).collect(Collectors.toList());
+        
+        // 1. 批量查场次
+        Map<String, ExpSession> sessionMap = sessionMapper.selectBatchIds(sessionNos).stream()
+                .collect(Collectors.toMap(ExpSession::getSessionNo, s -> s, (k1, k2) -> k1));
+
+        // 2. 收集项目号和教师工号
+        Set<String> projectNos = new HashSet<>();
+        Set<String> workNos = new HashSet<>();
+        for (ExpSession session : sessionMap.values()) {
+            if (session.getProjectNo() != null) projectNos.add(session.getProjectNo());
+            if (session.getWorkNo() != null) workNos.add(session.getWorkNo());
+        }
+
+        // 3. 批量查项目
+        Map<String, ExpProject> projectMap = projectNos.isEmpty() ? new HashMap<>() : 
+                projectMapper.selectBatchIds(projectNos).stream()
+                .collect(Collectors.toMap(ExpProject::getProjectNo, p -> p, (k1, k2) -> k1));
+
+        // 4. 批量查教师
+        Map<String, String> teacherMap = workNos.isEmpty() ? new HashMap<>() : 
+                teacherMapper.selectBatchIds(workNos).stream()
+                .collect(Collectors.toMap(Teacher::getWorkNo, Teacher::getName, (k1, k2) -> k1));
+
+        // 5. 批量查最新报告
+        List<ExpReport> reports = projectNos.isEmpty() ? new ArrayList<>() : 
+                reportMapper.selectList(new QueryWrapper<ExpReport>()
+                        .eq("student_no", studentNo)
+                        .in("project_no", projectNos)
+                        .eq("is_latest", 1));
+        Map<String, ExpReport> reportMap = reports.stream()
+                .collect(Collectors.toMap(ExpReport::getProjectNo, r -> r, (k1, k2) -> k1));
+
         List<SessionVO> resultList = new ArrayList<>();
         for (StudentBooking booking : bookingList) {
-            ExpSession session = sessionMapper.selectById(booking.getSessionNo());
+            ExpSession session = sessionMap.get(booking.getSessionNo());
             if (session != null) {
                 SessionVO vo = new SessionVO();
                 BeanUtils.copyProperties(session, vo);
                 vo.setBookingNo(booking.getBookingNo());
 
                 if (session.getWorkNo() != null) {
-                    Teacher teacher = teacherMapper.selectById(session.getWorkNo());
-                    if (teacher != null) vo.setTeacherName(teacher.getName());
+                    vo.setTeacherName(teacherMap.getOrDefault(session.getWorkNo(), "未知教师"));
                 }
                 
                 if (session.getProjectNo() != null) {
-                    ExpProject project = projectMapper.selectById(session.getProjectNo());
+                    ExpProject project = projectMap.get(session.getProjectNo());
                     if (project != null) {
                         vo.setProjectName(project.getProjectName());
                         vo.setGuideFile(project.getGuideFile());
                     }
-                }
 
-                QueryWrapper<ExpReport> reportQw = new QueryWrapper<>();
-                reportQw.eq("student_no", studentNo)
-                        .eq("project_no", session.getProjectNo())
-                        .eq("is_latest", 1);
-                ExpReport report = reportMapper.selectOne(reportQw);
-                
-                if (report != null) {
-                    vo.setScore(report.getScore()); 
-                    vo.setComment(report.getComment()); 
+                    ExpReport report = reportMap.get(session.getProjectNo());
+                    if (report != null) {
+                        vo.setScore(report.getScore()); 
+                        vo.setComment(report.getComment()); 
+                        vo.setIsGraded(report.getScore() != null);
+                    } else {
+                        vo.setIsGraded(false);
+                    }
                 }
-                
-                QueryWrapper<ExpReport> gradedQw = new QueryWrapper<>();
-                gradedQw.eq("student_no", studentNo)
-                        .eq("project_no", session.getProjectNo())
-                        .isNotNull("score"); 
-                vo.setIsGraded(reportMapper.selectCount(gradedQw) > 0);
-                
                 resultList.add(vo);
             }
         }
+        
         if (page != null && size != null) return Result.success(new PageResult<>(total, resultList));
         return Result.success(resultList);
     }
@@ -233,20 +284,34 @@ public class StudentController {
             sessionList = sessionMapper.selectList(null);
         }
 
+        if (sessionList.isEmpty()) {
+            if (page != null && size != null) return Result.success(new PageResult<>(0, new ArrayList<>()));
+            return Result.success(new ArrayList<>());
+        }
+
+        // 🛑【核心优化】批量查询教师和项目，消灭 N+1
+        Set<String> workNos = sessionList.stream().map(ExpSession::getWorkNo).filter(Objects::nonNull).collect(Collectors.toSet());
+        Set<String> projectNos = sessionList.stream().map(ExpSession::getProjectNo).filter(Objects::nonNull).collect(Collectors.toSet());
+
+        Map<String, String> teacherMap = workNos.isEmpty() ? new HashMap<>() : 
+                teacherMapper.selectBatchIds(workNos).stream()
+                .collect(Collectors.toMap(Teacher::getWorkNo, Teacher::getName, (k1, k2) -> k1));
+
+        Map<String, ExpProject> projectMap = projectNos.isEmpty() ? new HashMap<>() : 
+                projectMapper.selectBatchIds(projectNos).stream()
+                .collect(Collectors.toMap(ExpProject::getProjectNo, p -> p, (k1, k2) -> k1));
+
         List<SessionVO> resultList = new ArrayList<>();
         for (ExpSession session : sessionList) {
             SessionVO vo = new SessionVO();
             BeanUtils.copyProperties(session, vo);
 
             if (session.getWorkNo() != null) {
-                Teacher teacher = teacherMapper.selectById(session.getWorkNo());
-                if (teacher != null) {
-                    vo.setTeacherName(teacher.getName());
-                }
+                vo.setTeacherName(teacherMap.getOrDefault(session.getWorkNo(), "未知教师"));
             }
 
             if (session.getProjectNo() != null) {
-                ExpProject project = projectMapper.selectById(session.getProjectNo());
+                ExpProject project = projectMap.get(session.getProjectNo());
                 if (project != null) {
                     vo.setProjectName(project.getProjectName());
                     vo.setGuideFile(project.getGuideFile()); 
@@ -280,7 +345,7 @@ public class StudentController {
         return Result.success("密码修改成功，请重新登录！");
     }
 
-    // ================= 6. 考勤签到 (新增) =================
+    // ================= 6. 考勤签到 =================
     @Operation(summary = "学生签到")
     @PostMapping("/attendance/sign")
     public Result<String> signIn(

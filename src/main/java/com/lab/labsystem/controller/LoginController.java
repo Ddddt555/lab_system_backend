@@ -228,9 +228,24 @@ public class LoginController {
     public Result<Object> testLogin(
             @RequestParam String username,
             @RequestParam String role) {
+        
+        // =========================================================
+        // 🛑【严重警告：超级后门，请勿在生产环境开启！】🛑
+        // =========================================================
+        // 本接口主要用于：
+        // 1. 自动化集成测试（如 SecurityHardeningTest）。
+        // 2. 内部演示时快捷登录。
+        // 
+        // 【安全防呆机制】：
+        // 必须依赖 application.yaml 中的 app.security.test-login-enabled 开关，
+        // 在 IDEA 的公网演示环境变量中必须强制注入 TEST_LOGIN_ENABLED=false，彻底锁死此接口！
+        // 
+        // 🚫 绝对禁止任何人为了图方便，将此处的 if 判断直接删掉或写死 bypass！
+        // =========================================================
         if (!testLoginEnabled) {
             return Result.error("【测试接口已禁用】请勿在生产环境尝试非法登录！");
         }
+        
         if (!"student".equals(role) && !"teacher".equals(role) && !"admin".equals(role)) {
             return Result.error("非法的角色类型！");
         }

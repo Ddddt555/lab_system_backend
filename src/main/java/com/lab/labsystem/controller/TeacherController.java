@@ -7,7 +7,11 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.Set;
+import java.util.HashSet;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.BeanUtils;
@@ -28,11 +32,13 @@ import com.lab.labsystem.annotation.LogRecord;
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.Result;
+// 🛑【关键引入】引入我们即将创建的文件类型校验工具类
+import com.lab.labsystem.common.FileTypeUtils; 
 import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
 import com.lab.labsystem.service.TeacherScoreService;
 import com.lab.labsystem.service.AttendanceService;
-import com.lab.labsystem.service.MinioService; // ⚠️ 新增导入
+import com.lab.labsystem.service.MinioService;
 import com.lab.labsystem.vo.SessionVO;
 import com.lab.labsystem.vo.StudentVO;
 
@@ -62,29 +68,32 @@ public class TeacherController {
     @Autowired private com.lab.labsystem.common.NumberGenerator numberGenerator;
     @Autowired private TeacherScoreService teacherScoreService;
     @Autowired private AttendanceService attendanceService;
-    
-    // ⚠️ 新增：注入 MinioService
     @Autowired private MinioService minioService;
 
     // ================= 0. 基础数据 =================
     @Operation(summary = "获取我的教学班列表", description = "用于下拉框选择，返回当前教师负责的所有教学班")
     @GetMapping("/my-classes")
-    public Result<List<java.util.Map<String, String>>> getMyClasses(HttpServletRequest request) {
+    public Result<List<Map<String, String>>> getMyClasses(HttpServletRequest request) {
         String workNo = (String) request.getAttribute("currentUserNo");
         List<TeachClass> classes = teachClassMapper.selectList(
                 new QueryWrapper<TeachClass>().eq("work_no", workNo));
 
-        List<java.util.Map<String, String>> resultList = new ArrayList<>();
+        if (classes.isEmpty()) return Result.success(new ArrayList<>());
+
+        // 🛑【核心优化】批量查询课程，消灭 N+1
+        List<String> courseNos = classes.stream().map(TeachClass::getCourseNo).distinct().collect(Collectors.toList());
+        Map<String, String> courseMap = courseNos.isEmpty() ? new HashMap<>() :
+                courseMapper.selectBatchIds(courseNos).stream()
+                        .collect(Collectors.toMap(ExpCourse::getCourseNo, ExpCourse::getCourseName, (k1, k2) -> k1));
+
+        List<Map<String, String>> resultList = new ArrayList<>();
         for (TeachClass tc : classes) {
-            java.util.Map<String, String> map = new java.util.HashMap<>();
+            Map<String, String> map = new HashMap<>();
             map.put("classNo", tc.getClassNo());
-            ExpCourse course = courseMapper.selectById(tc.getCourseNo());
-            String courseName = course != null ? course.getCourseName() : "未知课程";
+            String courseName = courseMap.getOrDefault(tc.getCourseNo(), "未知课程");
             map.put("displayName", tc.getClassNo() + " - " + courseName + " (" + tc.getSemester() + ")");
-            
             map.put("dailyWeight", String.valueOf(tc.getDailyWeight() != null ? tc.getDailyWeight() : 30));
             map.put("reportWeight", String.valueOf(tc.getReportWeight() != null ? tc.getReportWeight() : 70));
-            
             resultList.add(map);
         }
         return Result.success(resultList);
@@ -173,9 +182,14 @@ public class TeacherController {
             return Result.error("文件格式非法！");
         }
 
+        // 🛑【新增：魔数深度校验】🛑
+        // 防止黑客将木马文件改名为 .pdf 上传
+        if (!FileTypeUtils.isValidFile(file, suffix)) {
+            return Result.error("文件内容与后缀不符，非法文件已被拦截！");
+        }
+
         String newFileName = java.util.UUID.randomUUID().toString().replace("-", "") + suffix;
         
-        // ⚠️ 修改：传至 MinIO
         try {
             minioService.upload(file, newFileName);
         } catch (Exception e) {
@@ -188,7 +202,6 @@ public class TeacherController {
             projectMapper.updateById(project);
             return Result.success("指导书上传成功！");
         } catch (Exception e) {
-            // 数据库更新失败，补偿清理 MinIO 文件
             minioService.remove(newFileName);
             throw new RuntimeException("数据库更新失败，请重试！", e);
         }
@@ -291,12 +304,23 @@ public class TeacherController {
             sessionList = sessionMapper.selectList(qw);
         }
 
+        if (sessionList.isEmpty()) {
+            if (page != null && size != null) return Result.success(new PageResult<>(0, new ArrayList<>()));
+            return Result.success(new ArrayList<>());
+        }
+
+        // 🛑【核心优化】批量查询项目，消灭 N+1
+        List<String> projectNos = sessionList.stream().map(ExpSession::getProjectNo).filter(Objects::nonNull).distinct().collect(Collectors.toList());
+        Map<String, ExpProject> projectMap = projectNos.isEmpty() ? new HashMap<>() :
+                projectMapper.selectBatchIds(projectNos).stream()
+                        .collect(Collectors.toMap(ExpProject::getProjectNo, p -> p, (k1, k2) -> k1));
+
         List<SessionVO> resultList = new ArrayList<>();
         for (ExpSession session : sessionList) {
             SessionVO vo = new SessionVO();
             BeanUtils.copyProperties(session, vo);
             if (session.getProjectNo() != null) {
-                ExpProject project = projectMapper.selectById(session.getProjectNo());
+                ExpProject project = projectMap.get(session.getProjectNo());
                 if (project != null) {
                     vo.setProjectName(project.getProjectName());
                     vo.setGuideFile(project.getGuideFile());
@@ -320,9 +344,17 @@ public class TeacherController {
 
         List<StudentBooking> bookings = bookingMapper.selectList(
                 new QueryWrapper<StudentBooking>().eq("session_no", sessionNo).eq("status", 1));
+        
+        if (bookings.isEmpty()) return Result.success(new ArrayList<>());
+
+        // 🛑【核心优化】批量查询学生信息，消灭 N+1
+        List<String> studentNos = bookings.stream().map(StudentBooking::getStudentNo).distinct().collect(Collectors.toList());
+        Map<String, Student> studentMap = studentMapper.selectBatchIds(studentNos).stream()
+                .collect(Collectors.toMap(Student::getStudentNo, s -> s, (k1, k2) -> k1));
+
         List<StudentVO> resultList = new ArrayList<>();
         for (StudentBooking booking : bookings) {
-            Student student = studentMapper.selectById(booking.getStudentNo());
+            Student student = studentMap.get(booking.getStudentNo());
             if (student != null) {
                 StudentVO vo = new StudentVO();
                 BeanUtils.copyProperties(student, vo);
@@ -380,32 +412,40 @@ public class TeacherController {
             return Result.success(new ArrayList<>());
         }
         
-        Set<String> studentNos = bookings.stream()
-                .map(StudentBooking::getStudentNo).collect(Collectors.toSet());
-        List<String> studentNoList = new ArrayList<>(studentNos);
+        List<String> allStudentNos = bookings.stream()
+                .map(StudentBooking::getStudentNo).distinct().collect(Collectors.toList());
 
-        long total = studentNoList.size();
-        
+        long total = allStudentNos.size();
+        List<String> pageStudentNos = allStudentNos;
+
+        // 内存分页（截取当前页的学号）
         if (page != null && size != null) {
             int fromIndex = (page - 1) * size;
             if (fromIndex >= total) {
                 return Result.success(new PageResult<>(total, new ArrayList<>()));
             }
-            int toIndex = Math.min(fromIndex + size, studentNoList.size());
-            studentNoList = studentNoList.subList(fromIndex, toIndex);
+            int toIndex = Math.min(fromIndex + size, allStudentNos.size());
+            pageStudentNos = allStudentNos.subList(fromIndex, toIndex);
         }
 
-        List<SessionVO> resultList = new ArrayList<>();
-        for (String sNo : studentNoList) {
-            Student student = studentMapper.selectById(sNo);
-            if (student == null) continue;
+        if (pageStudentNos.isEmpty()) return Result.success(new PageResult<>(total, new ArrayList<>()));
 
+        // 🛑【核心优化】批量查询学生信息
+        Map<String, String> studentNameMap = studentMapper.selectBatchIds(pageStudentNos).stream()
+                .collect(Collectors.toMap(Student::getStudentNo, Student::getName, (k1, k2) -> k1));
+
+        // 🛑【核心优化】批量查询当前页学生的成绩
+        Map<String, ExpScore> scoreMap = scoreMapper.selectList(
+                new QueryWrapper<ExpScore>().eq("class_no", classNo).in("student_no", pageStudentNos))
+                .stream().collect(Collectors.toMap(ExpScore::getStudentNo, s -> s, (k1, k2) -> k1));
+
+        List<SessionVO> resultList = new ArrayList<>();
+        for (String sNo : pageStudentNos) {
             SessionVO vo = new SessionVO();
             vo.setStudentNo(sNo);
-            vo.setTeacherName(student.getName());
+            vo.setTeacherName(studentNameMap.getOrDefault(sNo, "未知学生"));
 
-            ExpScore existScore = scoreMapper.selectOne(
-                    new QueryWrapper<ExpScore>().eq("student_no", sNo).eq("class_no", classNo));
+            ExpScore existScore = scoreMap.get(sNo);
             if (existScore != null) {
                 vo.setScore(existScore.getDailyScore());
                 vo.setReportScore(existScore.getReportScore());
@@ -462,10 +502,10 @@ public class TeacherController {
     // ================= 6. 数据统计 =================
     @Operation(summary = "获取成绩分布统计")
     @GetMapping("/stats/score-distribution")
-    public Result<java.util.Map<String, Integer>> getScoreDistribution(HttpServletRequest request) {
+    public Result<Map<String, Integer>> getScoreDistribution(HttpServletRequest request) {
         String currentWorkNo = (String) request.getAttribute("currentUserNo");
         int excellent = 0, good = 0, medium = 0, pass = 0, fail = 0;
-        java.util.Map<String, Integer> result = new java.util.HashMap<>();
+        Map<String, Integer> result = new HashMap<>();
 
         List<TeachClass> myClasses = teachClassMapper.selectList(
                 new QueryWrapper<TeachClass>().eq("work_no", currentWorkNo));
@@ -499,7 +539,7 @@ public class TeacherController {
 
     @Operation(summary = "获取实验开出率统计")
     @GetMapping("/stats/experiment-rate")
-    public Result<java.util.Map<String, Object>> getExperimentRate(HttpServletRequest request) {
+    public Result<Map<String, Object>> getExperimentRate(HttpServletRequest request) {
         String currentWorkNo = (String) request.getAttribute("currentUserNo");
 
         List<TeachClass> myClasses = teachClassMapper.selectList(
@@ -520,7 +560,7 @@ public class TeacherController {
 
         double rate = totalProjects == 0 ? 0 : (double) openedProjects / totalProjects * 100;
 
-        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        Map<String, Object> result = new HashMap<>();
         result.put("total", totalProjects);
         result.put("opened", openedProjects);
         result.put("rate", String.format("%.1f", rate));
