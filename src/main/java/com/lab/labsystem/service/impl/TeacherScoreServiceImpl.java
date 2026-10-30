@@ -1,0 +1,239 @@
+package com.lab.labsystem.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.lab.labsystem.entity.*;
+import com.lab.labsystem.mapper.*;
+import com.lab.labsystem.service.TeacherScoreService;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Service
+public class TeacherScoreServiceImpl implements TeacherScoreService {
+
+    @Autowired private ExpProjectMapper projectMapper;
+    @Autowired private ExpSessionMapper sessionMapper;
+    @Autowired private StudentBookingMapper bookingMapper;
+    @Autowired private StudentMapper studentMapper;
+    @Autowired private ExpReportMapper reportMapper;
+    @Autowired private ExpScoreMapper scoreMapper;
+    @Autowired private TeachClassMapper teachClassMapper;
+
+    // 动态计算总评的私有方法
+    private double calculateTotal(double dailyScore, double reportScore, TeachClass tc) {
+        int dw = (tc != null && tc.getDailyWeight() != null) ? tc.getDailyWeight() : 30;
+        int rw = (tc != null && tc.getReportWeight() != null) ? tc.getReportWeight() : 70;
+        double total = (dailyScore * dw / 100.0) + (reportScore * rw / 100.0);
+        // 保留一位小数
+        return Math.round(total * 10.0) / 10.0; 
+    }
+
+    @Override
+    public String saveScore(String currentWorkNo, String studentNo, String classNo, Double dailyScore) {
+        List<ExpProject> projects = projectMapper.selectList(new QueryWrapper<ExpProject>().eq("class_no", classNo));
+        if (projects.isEmpty()) throw new RuntimeException("该教学班暂无实验项目");
+        List<String> projectNos = projects.stream().map(ExpProject::getProjectNo).collect(Collectors.toList());
+
+        List<ExpSession> mySessions = sessionMapper.selectList(new QueryWrapper<ExpSession>().in("project_no", projectNos).eq("work_no", currentWorkNo));
+        if (mySessions.isEmpty()) throw new RuntimeException("非法操作：您无权录入该班级成绩！");
+
+        List<ExpReport> reports = reportMapper.selectList(new QueryWrapper<ExpReport>().eq("student_no", studentNo).in("project_no", projectNos).eq("is_latest", 1).isNotNull("score"));
+        double avgReportScore = 0.0;
+        if (!reports.isEmpty()) {
+            double sum = 0;
+            for (ExpReport r : reports) sum += r.getScore();
+            avgReportScore = sum / reports.size();
+        }
+
+        TeachClass tc = teachClassMapper.selectById(classNo);
+        double totalScore = calculateTotal(dailyScore, avgReportScore, tc);
+
+        // ⚠️ 步骤 8 改造：Upsert 策略（先更新，失败则插入）
+        ExpScore updateEntity = new ExpScore();
+        updateEntity.setDailyScore(dailyScore);
+        updateEntity.setReportScore(avgReportScore);
+        updateEntity.setTotalScore(totalScore);
+
+        com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<ExpScore> updateWrapper = 
+                new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<>();
+        updateWrapper.eq("student_no", studentNo).eq("class_no", classNo);
+
+        int rows = scoreMapper.update(updateEntity, updateWrapper);
+
+        if (rows == 0) {
+            // 没更新到，说明记录不存在，执行插入
+            ExpScore newScore = new ExpScore();
+            newScore.setScoreNo("SC" + UUID.randomUUID().toString().substring(0, 8));
+            newScore.setStudentNo(studentNo);
+            newScore.setClassNo(classNo);
+            newScore.setDailyScore(dailyScore);
+            newScore.setReportScore(avgReportScore);
+            newScore.setTotalScore(totalScore);
+            try {
+                scoreMapper.insert(newScore);
+            } catch (org.springframework.dao.DuplicateKeyException e) {
+                // ⚠️ 兜底：如果并发导致被别人抢先插入了，再执行一次更新
+                scoreMapper.update(updateEntity, updateWrapper);
+            }
+        }
+        
+        return "总评已算好: " + String.format("%.1f", totalScore) + " 分";
+    }
+
+    // ⚠️ 新增：教师批阅报告后，自动重算该学生的报告均分和总评
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void recalculateAfterGrade(String studentNo, String classNo) {
+        List<ExpProject> projects = projectMapper.selectList(new QueryWrapper<ExpProject>().eq("class_no", classNo));
+        if (projects.isEmpty()) return;
+        List<String> projectNos = projects.stream().map(ExpProject::getProjectNo).collect(Collectors.toList());
+
+        List<ExpReport> reports = reportMapper.selectList(new QueryWrapper<ExpReport>()
+                .eq("student_no", studentNo).in("project_no", projectNos)
+                .eq("is_latest", 1).isNotNull("score"));
+        double avgReportScore = 0.0;
+        if (!reports.isEmpty()) {
+            double sum = 0;
+            for (ExpReport r : reports) sum += r.getScore();
+            avgReportScore = sum / reports.size();
+        }
+
+        ExpScore score = scoreMapper.selectOne(new QueryWrapper<ExpScore>().eq("student_no", studentNo).eq("class_no", classNo));
+        TeachClass tc = teachClassMapper.selectById(classNo);
+
+        if (score == null) {
+            // 如果还没录入过成绩，先建一条记录，平时成绩暂记 0 分
+            score = new ExpScore();
+            score.setScoreNo("SC" + UUID.randomUUID().toString().substring(0, 8));
+            score.setStudentNo(studentNo);
+            score.setClassNo(classNo);
+            score.setDailyScore(0.0);
+            score.setReportScore(avgReportScore);
+            score.setTotalScore(calculateTotal(0.0, avgReportScore, tc));
+            scoreMapper.insert(score);
+        } else {
+            // 如果已有记录，只更新报告分和总评，保留已有的平时成绩
+            score.setReportScore(avgReportScore);
+            double dailyScore = score.getDailyScore() != null ? score.getDailyScore() : 0.0;
+            score.setTotalScore(calculateTotal(dailyScore, avgReportScore, tc));
+            scoreMapper.updateById(score);
+        }
+    }
+
+    // ⚠️ 核心修改：动态表头导出
+    @Override
+    public void exportScores(String currentWorkNo, String classNo, HttpServletResponse response) throws IOException {
+        // 1. 获取该班级动态配置的权重
+        TeachClass tc = teachClassMapper.selectById(classNo);
+        int dw = (tc != null && tc.getDailyWeight() != null) ? tc.getDailyWeight() : 30;
+        int rw = (tc != null && tc.getReportWeight() != null) ? tc.getReportWeight() : 70;
+
+        // 2. 动态组装 EasyExcel 表头
+        List<List<String>> head = new ArrayList<>();
+        head.add(Collections.singletonList("学号"));
+        head.add(Collections.singletonList("姓名"));
+        head.add(Collections.singletonList("所属行政班"));
+        head.add(Collections.singletonList("平时成绩(" + dw + "%)"));
+        head.add(Collections.singletonList("报告均分(" + rw + "%)"));
+        head.add(Collections.singletonList("总评成绩"));
+
+        List<List<Object>> dataList = new ArrayList<>();
+
+        // 设置响应头
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setCharacterEncoding("utf-8");
+        String fileName = java.net.URLEncoder.encode("成绩单_" + classNo, "UTF-8").replaceAll("\\+", "%20");
+        response.setHeader("Content-disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
+
+        // 3. 查询数据并判空
+        List<ExpProject> projects = projectMapper.selectList(new QueryWrapper<ExpProject>().eq("class_no", classNo));
+        if (projects.isEmpty()) {
+            com.alibaba.excel.EasyExcel.write(response.getOutputStream()).head(head).sheet("成绩单").doWrite(dataList);
+            return;
+        }
+        List<String> projectNos = projects.stream().map(ExpProject::getProjectNo).collect(Collectors.toList());
+
+        List<ExpSession> sessions = sessionMapper.selectList(new QueryWrapper<ExpSession>().in("project_no", projectNos).eq("work_no", currentWorkNo));
+        if (sessions.isEmpty()) {
+            com.alibaba.excel.EasyExcel.write(response.getOutputStream()).head(head).sheet("成绩单").doWrite(dataList);
+            return;
+        }
+        List<String> sessionNos = sessions.stream().map(ExpSession::getSessionNo).collect(Collectors.toList());
+
+        List<StudentBooking> bookings = bookingMapper.selectList(new QueryWrapper<StudentBooking>().in("session_no", sessionNos).eq("status", 1));
+        if (bookings.isEmpty()) {
+            com.alibaba.excel.EasyExcel.write(response.getOutputStream()).head(head).sheet("成绩单").doWrite(dataList);
+            return;
+        }
+        Set<String> studentNos = bookings.stream().map(StudentBooking::getStudentNo).collect(Collectors.toSet());
+
+        // 4. 组装数据
+        for (String sNo : studentNos) {
+            Student student = studentMapper.selectById(sNo);
+            if (student == null) continue;
+
+            List<Object> row = new ArrayList<>();
+            row.add(sNo);
+            row.add(student.getName());
+            row.add(student.getAdminClassNo() != null ? student.getAdminClassNo() : "未分班");
+
+            ExpScore score = scoreMapper.selectOne(new QueryWrapper<ExpScore>().eq("student_no", sNo).eq("class_no", classNo));
+            if (score != null) {
+                row.add(score.getDailyScore());
+                row.add(score.getReportScore());
+                row.add(score.getTotalScore());
+            } else {
+                row.add(0.0); row.add(0.0); row.add(0.0);
+            }
+            dataList.add(row);
+        }
+
+        // 5. 写入动态表头和数据
+        com.alibaba.excel.EasyExcel.write(response.getOutputStream())
+                .head(head)
+                .sheet("成绩单")
+                .doWrite(dataList);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public String updateWeight(String currentWorkNo, String classNo, Integer dailyWeight, Integer reportWeight) {
+        if (dailyWeight == null || reportWeight == null || dailyWeight < 0 || reportWeight < 0) {
+            throw new RuntimeException("权重不能为空或负数！");
+        }
+        if (dailyWeight + reportWeight != 100) {
+            throw new RuntimeException("权重之和必须等于 100%！");
+        }
+
+        TeachClass tc = teachClassMapper.selectById(classNo);
+        if (tc == null || !currentWorkNo.equals(tc.getWorkNo())) {
+            throw new RuntimeException("非法操作：您无权修改该班级权重！");
+        }
+        tc.setDailyWeight(dailyWeight);
+        tc.setReportWeight(reportWeight);
+        teachClassMapper.updateById(tc);
+
+        List<ExpScore> scores = scoreMapper.selectList(
+                new QueryWrapper<ExpScore>().eq("class_no", classNo));
+        
+        int count = 0;
+        for (ExpScore score : scores) {
+            if (score.getDailyScore() != null && score.getReportScore() != null) {
+                double newTotal = calculateTotal(score.getDailyScore(), score.getReportScore(), tc);
+                score.setTotalScore(newTotal);
+                scoreMapper.updateById(score);
+                count++;
+            }
+        }
+        return "权重修改成功，已自动重算 " + count + " 名学生的成绩！";
+    }
+}

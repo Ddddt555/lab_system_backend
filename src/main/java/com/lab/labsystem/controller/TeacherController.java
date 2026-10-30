@@ -1,0 +1,559 @@
+package com.lab.labsystem.controller;
+
+import java.io.IOException;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.lab.labsystem.annotation.LogRecord;
+import com.lab.labsystem.annotation.RequireRole;
+import com.lab.labsystem.common.PageResult;
+import com.lab.labsystem.common.Result;
+import com.lab.labsystem.entity.*;
+import com.lab.labsystem.mapper.*;
+import com.lab.labsystem.service.TeacherScoreService;
+import com.lab.labsystem.service.AttendanceService;
+import com.lab.labsystem.service.MinioService; // ⚠️ 新增导入
+import com.lab.labsystem.vo.SessionVO;
+import com.lab.labsystem.vo.StudentVO;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+@Tag(name = "教师端接口", description = "包含实验项目发布、场次排课、成绩管理、数据统计等功能")
+@RequireRole("teacher")
+@RestController
+@RequestMapping("/api/teacher")
+public class TeacherController {
+
+    @Autowired private ExpProjectMapper projectMapper;
+    @Autowired private LabRoomMapper labRoomMapper;
+    @Autowired private ExpSessionMapper sessionMapper;
+    @Autowired private StudentBookingMapper bookingMapper;
+    @Autowired private StudentMapper studentMapper;
+    @Autowired private com.lab.labsystem.mapper.TeacherMapper teacherMapper;
+    @Autowired private SysSemesterMapper semesterMapper;
+    @Autowired private BCryptPasswordEncoder passwordEncoder;
+    @Autowired private ExpReportMapper reportMapper;
+    @Autowired private ExpScoreMapper scoreMapper;
+    @Autowired private ExpCourseMapper courseMapper;
+    @Autowired private TeachClassMapper teachClassMapper;
+    @Autowired private com.lab.labsystem.common.NumberGenerator numberGenerator;
+    @Autowired private TeacherScoreService teacherScoreService;
+    @Autowired private AttendanceService attendanceService;
+    
+    // ⚠️ 新增：注入 MinioService
+    @Autowired private MinioService minioService;
+
+    // ================= 0. 基础数据 =================
+    @Operation(summary = "获取我的教学班列表", description = "用于下拉框选择，返回当前教师负责的所有教学班")
+    @GetMapping("/my-classes")
+    public Result<List<java.util.Map<String, String>>> getMyClasses(HttpServletRequest request) {
+        String workNo = (String) request.getAttribute("currentUserNo");
+        List<TeachClass> classes = teachClassMapper.selectList(
+                new QueryWrapper<TeachClass>().eq("work_no", workNo));
+
+        List<java.util.Map<String, String>> resultList = new ArrayList<>();
+        for (TeachClass tc : classes) {
+            java.util.Map<String, String> map = new java.util.HashMap<>();
+            map.put("classNo", tc.getClassNo());
+            ExpCourse course = courseMapper.selectById(tc.getCourseNo());
+            String courseName = course != null ? course.getCourseName() : "未知课程";
+            map.put("displayName", tc.getClassNo() + " - " + courseName + " (" + tc.getSemester() + ")");
+            
+            map.put("dailyWeight", String.valueOf(tc.getDailyWeight() != null ? tc.getDailyWeight() : 30));
+            map.put("reportWeight", String.valueOf(tc.getReportWeight() != null ? tc.getReportWeight() : 70));
+            
+            resultList.add(map);
+        }
+        return Result.success(resultList);
+    }
+
+    @Operation(summary = "获取实验室列表")
+    @GetMapping("/labs")
+    public Result<List<LabRoom>> getAllLabs() {
+        return Result.success(labRoomMapper.selectList(null));
+    }
+
+    @Operation(summary = "获取学期列表")
+    @GetMapping("/semesters")
+    public Result<List<SysSemester>> getAllSemesters() {
+        return Result.success(semesterMapper.selectList(null));
+    }
+
+    // ================= 1. 实验项目管理 =================
+    @Operation(summary = "获取我的实验项目列表", description = "只返回当前教师负责的教学班下的项目")
+    @GetMapping("/project/list")
+    public Result<Object> getProjectList(
+            HttpServletRequest request,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        String workNo = (String) request.getAttribute("currentUserNo");
+        List<TeachClass> myClasses = teachClassMapper.selectList(
+                new QueryWrapper<TeachClass>().eq("work_no", workNo));
+        if (myClasses.isEmpty()) {
+            if (page != null && size != null) return Result.success(new PageResult<>(0, new ArrayList<>()));
+            return Result.success(new ArrayList<>());
+        }
+        List<String> myClassNos = myClasses.stream()
+                .map(TeachClass::getClassNo).collect(Collectors.toList());
+
+        QueryWrapper<ExpProject> qw = new QueryWrapper<ExpProject>()
+                .in("class_no", myClassNos)
+                .orderByDesc("project_no");
+
+        if (page != null && size != null) {
+            Page<ExpProject> projectPage = projectMapper.selectPage(new Page<>(page, size), qw);
+            return Result.success(new PageResult<>(projectPage.getTotal(), projectPage.getRecords()));
+        }
+        return Result.success(projectMapper.selectList(qw));
+    }
+
+    @Operation(summary = "发布实验项目")
+    @LogRecord("发布实验项目")
+    @PostMapping("/project/add")
+    public Result<String> addProject(@RequestBody ExpProject project, HttpServletRequest request) {
+        String currentWorkNo = (String) request.getAttribute("currentUserNo");
+
+        if (project.getClassNo() == null || project.getClassNo().isEmpty()) {
+            return Result.error("请选择所属教学班！");
+        }
+        TeachClass tc = teachClassMapper.selectById(project.getClassNo());
+        if (tc == null || !currentWorkNo.equals(tc.getWorkNo())) {
+            return Result.error("非法操作：您无权在该教学班下发布项目！");
+        }
+
+        project.setProjectNo(numberGenerator.generateProjectNo());
+        projectMapper.insert(project);
+        return Result.success("项目发布成功！项目号为：" + project.getProjectNo());
+    }
+
+    @Operation(summary = "上传实验指导书")
+    @LogRecord("上传指导书")
+    @PostMapping("/project/upload-guide")
+    public Result<String> uploadGuide(@RequestParam("file") MultipartFile file,
+                                      @RequestParam("projectNo") String projectNo,
+                                      HttpServletRequest request) {
+        String currentWorkNo = (String) request.getAttribute("currentUserNo");
+
+        if (file.isEmpty()) return Result.error("文件不能为空！");
+        
+        ExpProject project = projectMapper.selectById(projectNo);
+        if (project == null) return Result.error("项目不存在！");
+
+        TeachClass tc = teachClassMapper.selectById(project.getClassNo());
+        if (tc == null || !currentWorkNo.equals(tc.getWorkNo())) {
+            return Result.error("非法操作：您无权操作该项目！");
+        }
+
+        String originalFilename = file.getOriginalFilename();
+        String suffix = originalFilename != null && originalFilename.contains(".") ? originalFilename.substring(originalFilename.lastIndexOf(".")).toLowerCase() : "";
+        if (!Arrays.asList(".pdf", ".doc", ".docx", ".zip", ".rar").contains(suffix)) {
+            return Result.error("文件格式非法！");
+        }
+
+        String newFileName = java.util.UUID.randomUUID().toString().replace("-", "") + suffix;
+        
+        // ⚠️ 修改：传至 MinIO
+        try {
+            minioService.upload(file, newFileName);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return Result.error("上传指导书到对象存储失败，请重试！");
+        }
+
+        try {
+            project.setGuideFile(newFileName);
+            projectMapper.updateById(project);
+            return Result.success("指导书上传成功！");
+        } catch (Exception e) {
+            // 数据库更新失败，补偿清理 MinIO 文件
+            minioService.remove(newFileName);
+            throw new RuntimeException("数据库更新失败，请重试！", e);
+        }
+    }
+
+    // ================= 2. 实验场次安排 =================
+    @Operation(summary = "安排实验场次", description = "包含教师时间冲突、实验室占用、教学班冲突等多重校验")
+    @LogRecord("安排实验场次")
+    @PostMapping("/session/add")
+    public Result<String> addSession(@RequestBody ExpSession session, HttpServletRequest request) {
+        String currentWorkNo = (String) request.getAttribute("currentUserNo");
+        session.setWorkNo(currentWorkNo);
+
+        ExpProject project = projectMapper.selectById(session.getProjectNo());
+        if (project == null) return Result.error("实验项目不存在！");
+        TeachClass tc = teachClassMapper.selectById(project.getClassNo());
+        if (tc == null || !tc.getWorkNo().equals(currentWorkNo)) {
+            return Result.error("非法操作：您无权安排其他老师的实验项目！");
+        }
+
+        LabRoom room = labRoomMapper.selectById(session.getRoomNo());
+        if (room == null) return Result.error("实验室不存在！");
+        if (session.getCapacity() > room.getCapacity()) return Result.error("排课容量不能超过实验室容量！");
+
+        QueryWrapper<ExpSession> conflictQw = new QueryWrapper<ExpSession>()
+                .eq("semester", session.getSemester())
+                .eq("week_num", session.getWeekNum())
+                .eq("day_of_week", session.getDayOfWeek())
+                .eq("period", session.getPeriod());
+
+        List<ExpSession> existSessions = sessionMapper.selectList(conflictQw);
+        for (ExpSession exist : existSessions) {
+            if (exist.getWorkNo().equals(currentWorkNo)) {
+                return Result.error("排课失败：您在【第" + session.getWeekNum() + "周 "
+                        + getWeekDayName(session.getDayOfWeek()) + " " + session.getPeriod() + "】已有其他排课！");
+            }
+            if (exist.getRoomNo().equals(session.getRoomNo())) {
+                return Result.error("排课失败：实验室【" + room.getRoomName() + "】在【第"
+                        + session.getWeekNum() + "周 " + getWeekDayName(session.getDayOfWeek())
+                        + " " + session.getPeriod() + "】已被占用！");
+            }
+            ExpProject existProject = projectMapper.selectById(exist.getProjectNo());
+            if (existProject != null && existProject.getClassNo() != null
+                    && existProject.getClassNo().equals(project.getClassNo())) {
+                return Result.error("排课失败：该教学班在此时段已经有排课了！");
+            }
+        }
+
+        session.setSessionNo(numberGenerator.generateSessionNo());
+        LocalDateTime absoluteTime = calculateAbsoluteTime(
+                session.getSemester(), session.getWeekNum(),
+                session.getDayOfWeek(), session.getPeriod());
+        session.setSessionTime(absoluteTime);
+        session.setRemainingSeats(session.getCapacity());
+
+        sessionMapper.insert(session);
+        return Result.success("场次安排成功！场次号为：" + session.getSessionNo());
+    }
+
+    private String getWeekDayName(Integer dayOfWeek) {
+        String[] days = {"", "周一", "周二", "周三", "周四", "周五", "周六", "周日"};
+        if (dayOfWeek != null && dayOfWeek >= 1 && dayOfWeek <= 7) return days[dayOfWeek];
+        return "未知";
+    }
+
+    private LocalDateTime calculateAbsoluteTime(String semesterName, Integer weekNum,
+                                                Integer dayOfWeek, String period) {
+        SysSemester semester = semesterMapper.selectById(semesterName);
+        if (semester == null) throw new RuntimeException("排课失败：该学期配置不存在！");
+        LocalDate targetDate = semester.getStartDate()
+                .plusWeeks(weekNum - 1).plusDays(dayOfWeek - 1);
+        LocalTime targetTime;
+        switch (period) {
+            case "1-2节": targetTime = LocalTime.of(8, 0); break;
+            case "3-4节": targetTime = LocalTime.of(10, 0); break;
+            case "5-6节": targetTime = LocalTime.of(14, 0); break;
+            case "7-8节": targetTime = LocalTime.of(16, 0); break;
+            case "9-10节": targetTime = LocalTime.of(19, 0); break;
+            default: targetTime = LocalTime.of(8, 0);
+        }
+        return LocalDateTime.of(targetDate, targetTime);
+    }
+
+    @Operation(summary = "获取我负责的实验场次列表")
+    @GetMapping("/my-sessions")
+    public Result<Object> getMySessions(
+            HttpServletRequest request,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        String workNo = (String) request.getAttribute("currentUserNo");
+        QueryWrapper<ExpSession> qw = new QueryWrapper<ExpSession>().eq("work_no", workNo).orderByAsc("session_time");
+
+        List<ExpSession> sessionList;
+        long total = 0;
+        if (page != null && size != null) {
+            Page<ExpSession> sessionPage = sessionMapper.selectPage(new Page<>(page, size), qw);
+            sessionList = sessionPage.getRecords();
+            total = sessionPage.getTotal();
+        } else {
+            sessionList = sessionMapper.selectList(qw);
+        }
+
+        List<SessionVO> resultList = new ArrayList<>();
+        for (ExpSession session : sessionList) {
+            SessionVO vo = new SessionVO();
+            BeanUtils.copyProperties(session, vo);
+            if (session.getProjectNo() != null) {
+                ExpProject project = projectMapper.selectById(session.getProjectNo());
+                if (project != null) {
+                    vo.setProjectName(project.getProjectName());
+                    vo.setGuideFile(project.getGuideFile());
+                }
+            }
+            resultList.add(vo);
+        }
+        if (page != null && size != null) return Result.success(new PageResult<>(total, resultList));
+        return Result.success(resultList);
+    }
+
+    // ================= 3. 查看名单 =================
+    @Operation(summary = "查看场次预约学生名单")
+    @GetMapping("/session-bookings")
+    public Result<List<StudentVO>> getSessionBookings(@RequestParam String sessionNo,
+                                                      HttpServletRequest request) {
+        String currentWorkNo = (String) request.getAttribute("currentUserNo");
+        ExpSession session = sessionMapper.selectById(sessionNo);
+        if (session == null || !session.getWorkNo().equals(currentWorkNo))
+            return Result.error("非法操作：您无权查看！");
+
+        List<StudentBooking> bookings = bookingMapper.selectList(
+                new QueryWrapper<StudentBooking>().eq("session_no", sessionNo).eq("status", 1));
+        List<StudentVO> resultList = new ArrayList<>();
+        for (StudentBooking booking : bookings) {
+            Student student = studentMapper.selectById(booking.getStudentNo());
+            if (student != null) {
+                StudentVO vo = new StudentVO();
+                BeanUtils.copyProperties(student, vo);
+                vo.setBookingTime(booking.getBookingTime());
+                resultList.add(vo);
+            }
+        }
+        return Result.success(resultList);
+    }
+
+    @Operation(summary = "取消排课")
+    @LogRecord("取消排课")
+    @DeleteMapping("/session/delete")
+    public Result<String> deleteSession(@RequestParam String sessionNo, HttpServletRequest request) {
+        String currentWorkNo = (String) request.getAttribute("currentUserNo");
+        ExpSession session = sessionMapper.selectById(sessionNo);
+        if (session == null || !session.getWorkNo().equals(currentWorkNo)) return Result.error("非法操作！");
+        
+        sessionMapper.deleteById(sessionNo);
+        return Result.success("取消排课成功！");
+    }
+
+    // ================= 4. 成绩管理 =================
+    @Operation(summary = "获取教学班成绩列表")
+    @GetMapping("/scores")
+    public Result<Object> getCourseScores(
+            @RequestParam String classNo,
+            HttpServletRequest request,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        String currentWorkNo = (String) request.getAttribute("currentUserNo");
+
+        List<ExpProject> projects = projectMapper.selectList(
+                new QueryWrapper<ExpProject>().eq("class_no", classNo));
+        if (projects.isEmpty()) {
+            if (page != null && size != null) return Result.success(new PageResult<>(0, new ArrayList<>()));
+            return Result.success(new ArrayList<>());
+        }
+        List<String> projectNos = projects.stream()
+                .map(ExpProject::getProjectNo).collect(Collectors.toList());
+
+        List<ExpSession> sessions = sessionMapper.selectList(
+                new QueryWrapper<ExpSession>().in("project_no", projectNos).eq("work_no", currentWorkNo));
+        if (sessions.isEmpty()) {
+            if (page != null && size != null) return Result.success(new PageResult<>(0, new ArrayList<>()));
+            return Result.success(new ArrayList<>());
+        }
+        List<String> sessionNos = sessions.stream()
+                .map(ExpSession::getSessionNo).collect(Collectors.toList());
+
+        List<StudentBooking> bookings = bookingMapper.selectList(
+                new QueryWrapper<StudentBooking>().in("session_no", sessionNos).eq("status", 1));
+        if (bookings.isEmpty()) {
+            if (page != null && size != null) return Result.success(new PageResult<>(0, new ArrayList<>()));
+            return Result.success(new ArrayList<>());
+        }
+        
+        Set<String> studentNos = bookings.stream()
+                .map(StudentBooking::getStudentNo).collect(Collectors.toSet());
+        List<String> studentNoList = new ArrayList<>(studentNos);
+
+        long total = studentNoList.size();
+        
+        if (page != null && size != null) {
+            int fromIndex = (page - 1) * size;
+            if (fromIndex >= total) {
+                return Result.success(new PageResult<>(total, new ArrayList<>()));
+            }
+            int toIndex = Math.min(fromIndex + size, studentNoList.size());
+            studentNoList = studentNoList.subList(fromIndex, toIndex);
+        }
+
+        List<SessionVO> resultList = new ArrayList<>();
+        for (String sNo : studentNoList) {
+            Student student = studentMapper.selectById(sNo);
+            if (student == null) continue;
+
+            SessionVO vo = new SessionVO();
+            vo.setStudentNo(sNo);
+            vo.setTeacherName(student.getName());
+
+            ExpScore existScore = scoreMapper.selectOne(
+                    new QueryWrapper<ExpScore>().eq("student_no", sNo).eq("class_no", classNo));
+            if (existScore != null) {
+                vo.setScore(existScore.getDailyScore());
+                vo.setReportScore(existScore.getReportScore());
+                vo.setTotalScore(existScore.getTotalScore());
+            } else {
+                vo.setScore(0.0); vo.setReportScore(0.0); vo.setTotalScore(0.0);
+            }
+            resultList.add(vo);
+        }
+        
+        if (page != null && size != null) return Result.success(new PageResult<>(total, resultList));
+        return Result.success(resultList);
+    }
+
+    @Operation(summary = "录入平时成绩并自动计算总评")
+    @LogRecord("录入平时成绩")
+    @PostMapping("/score/save")
+    public Result<String> saveScore(@RequestParam String studentNo,
+                                    @RequestParam String classNo,
+                                    @RequestParam Double dailyScore,
+                                    HttpServletRequest request) {
+        String currentWorkNo = (String) request.getAttribute("currentUserNo");
+        return Result.success(teacherScoreService.saveScore(currentWorkNo, studentNo, classNo, dailyScore));
+    }
+
+    @Operation(summary = "修改成绩权重并重算")
+    @LogRecord("修改成绩权重")
+    @PostMapping("/score/weight")
+    public Result<String> updateWeight(
+            @RequestParam String classNo,
+            @RequestParam Integer dailyWeight,
+            @RequestParam Integer reportWeight,
+            HttpServletRequest request) {
+        String workNo = (String) request.getAttribute("currentUserNo");
+        return Result.success(teacherScoreService.updateWeight(workNo, classNo, dailyWeight, reportWeight));
+    }
+
+    // ================= 5. 修改密码 =================
+    @Operation(summary = "教师修改密码")
+    @LogRecord("修改密码")
+    @PostMapping("/update-password")
+    public Result<String> updatePassword(HttpServletRequest request,
+                                         @RequestParam String oldPwd,
+                                         @RequestParam String newPwd) {
+        String workNo = (String) request.getAttribute("currentUserNo");
+        Teacher teacher = teacherMapper.selectById(workNo);
+        if (teacher == null || !passwordEncoder.matches(oldPwd, teacher.getPassword()))
+            return Result.error("原密码错误！");
+        teacher.setPassword(passwordEncoder.encode(newPwd));
+        teacherMapper.updateById(teacher);
+        return Result.success("密码修改成功！");
+    }
+
+    // ================= 6. 数据统计 =================
+    @Operation(summary = "获取成绩分布统计")
+    @GetMapping("/stats/score-distribution")
+    public Result<java.util.Map<String, Integer>> getScoreDistribution(HttpServletRequest request) {
+        String currentWorkNo = (String) request.getAttribute("currentUserNo");
+        int excellent = 0, good = 0, medium = 0, pass = 0, fail = 0;
+        java.util.Map<String, Integer> result = new java.util.HashMap<>();
+
+        List<TeachClass> myClasses = teachClassMapper.selectList(
+                new QueryWrapper<TeachClass>().eq("work_no", currentWorkNo));
+        List<String> myClassNos = myClasses.stream()
+                .map(TeachClass::getClassNo).collect(Collectors.toList());
+
+        if (myClassNos.isEmpty()) {
+            result.put("优秀", 0); result.put("良好", 0);
+            result.put("中等", 0); result.put("及格", 0); result.put("不及格", 0);
+            return Result.success(result);
+        }
+
+        List<ExpScore> scores = scoreMapper.selectList(
+                new QueryWrapper<ExpScore>().in("class_no", myClassNos).isNotNull("total_score"));
+        for (ExpScore s : scores) {
+            double score = s.getTotalScore();
+            if (score >= 90) excellent++;
+            else if (score >= 80) good++;
+            else if (score >= 70) medium++;
+            else if (score >= 60) pass++;
+            else fail++;
+        }
+
+        result.put("优秀", excellent);
+        result.put("良好", good);
+        result.put("中等", medium);
+        result.put("及格", pass);
+        result.put("不及格", fail);
+        return Result.success(result);
+    }
+
+    @Operation(summary = "获取实验开出率统计")
+    @GetMapping("/stats/experiment-rate")
+    public Result<java.util.Map<String, Object>> getExperimentRate(HttpServletRequest request) {
+        String currentWorkNo = (String) request.getAttribute("currentUserNo");
+
+        List<TeachClass> myClasses = teachClassMapper.selectList(
+                new QueryWrapper<TeachClass>().eq("work_no", currentWorkNo));
+        List<String> myClassNos = myClasses.stream()
+                .map(TeachClass::getClassNo).collect(Collectors.toList());
+
+        long totalProjects = 0;
+        if (!myClassNos.isEmpty()) {
+            totalProjects = projectMapper.selectCount(
+                    new QueryWrapper<ExpProject>().in("class_no", myClassNos));
+        }
+
+        List<ExpSession> mySessions = sessionMapper.selectList(
+                new QueryWrapper<ExpSession>().eq("work_no", currentWorkNo));
+        long openedProjects = mySessions.stream()
+                .map(ExpSession::getProjectNo).distinct().count();
+
+        double rate = totalProjects == 0 ? 0 : (double) openedProjects / totalProjects * 100;
+
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        result.put("total", totalProjects);
+        result.put("opened", openedProjects);
+        result.put("rate", String.format("%.1f", rate));
+        return Result.success(result);
+    }
+
+    // ================= 7. 导出成绩 =================
+    @Operation(summary = "导出教学班成绩单 Excel")
+    @GetMapping("/score/export")
+    public void exportScores(@RequestParam String classNo, HttpServletRequest request, HttpServletResponse response) throws IOException {
+        String currentWorkNo = (String) request.getAttribute("currentUserNo");
+        teacherScoreService.exportScores(currentWorkNo, classNo, response);
+    }
+
+    // ================= 8. 考勤管理 =================
+    @Operation(summary = "教师发起签到")
+    @PostMapping("/attendance/start")
+    public Result<String> startAttendance(@RequestParam String sessionNo, HttpServletRequest request) {
+        String workNo = (String) request.getAttribute("currentUserNo");
+        return Result.success(attendanceService.startAttendance(workNo, sessionNo));
+    }
+
+    @Operation(summary = "获取已签到学生名单")
+    @GetMapping("/attendance/list")
+    public Result<List<StudentVO>> getAttendanceList(@RequestParam String sessionNo, HttpServletRequest request) {
+        String workNo = (String) request.getAttribute("currentUserNo");
+        return Result.success(attendanceService.getAttendanceList(workNo, sessionNo));
+    }
+    
+    @Operation(summary = "导出场次考勤Excel")
+    @GetMapping("/attendance/export")
+    public void exportAttendance(@RequestParam String sessionNo, HttpServletRequest request, HttpServletResponse response) throws Exception {
+        String workNo = (String) request.getAttribute("currentUserNo");
+        attendanceService.exportAttendance(workNo, sessionNo, response);
+    }
+}
