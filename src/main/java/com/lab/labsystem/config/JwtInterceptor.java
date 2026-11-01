@@ -20,7 +20,6 @@ public class JwtInterceptor implements HandlerInterceptor {
     private final TeacherMapper teacherMapper;
     private final SysAdminMapper sysAdminMapper;
 
-    // 🛑 构造函数，接收这四个参数
     public JwtInterceptor(StringRedisTemplate stringRedisTemplate, 
                           StudentMapper studentMapper, 
                           TeacherMapper teacherMapper, 
@@ -80,9 +79,13 @@ public class JwtInterceptor implements HandlerInterceptor {
                     mustChange = (a != null && a.getMustChangePassword() != null && a.getMustChangePassword() == 1);
                 }
 
-                // 如果需要强制改密，且当前请求的 URI 不是修改密码接口
+                // 🛑【核心修复】使用白名单判断，允许强制改密的用户访问必要的接口
                 String uri = request.getRequestURI();
-                if (mustChange && !uri.endsWith("/update-password")) {
+                boolean isWhitelisted = uri.endsWith("/update-password") || 
+                                        uri.endsWith("/notice/list") || 
+                                        uri.endsWith("/logout");
+
+                if (mustChange && !isWhitelisted) {
                     response.setStatus(403);
                     response.setContentType("application/json;charset=UTF-8");
                     response.getWriter().write("{\"code\":403,\"msg\":\"请先修改初始密码！\",\"data\":null}");
