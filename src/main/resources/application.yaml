@@ -72,7 +72,7 @@ minio:
 
 app:
   security:
-    test-login-enabled: ${TEST_LOGIN_ENABLED:true}
+    test-login-enabled: ${TEST_LOGIN_ENABLED:false}
 
   # ============================================================
   # ⚠️ 核心开关：安全规范与 cpolar 兼容的物理隔离 ⚠️

@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # ================= 1. MySQL 数据库 =================
+  mysql:
+    image: mysql:8.0
+    container_name: labsystem-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD} # 从 .env 读取
+      MYSQL_DATABASE: lab_management
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 自动导入建表脚本
+      - ./db_structure.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - lab-net
+
+  # ================= 2. Redis 缓存 =================
+  redis:
+    image: redis:7.2-alpine
+    container_name: labsystem-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - lab-net
+
+  # ================= 3. MinIO 对象存储 =================
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    container_name: labsystem-minio
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}         # 从 .env 读取
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD} # 从 .env 读取
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - lab-net
+
+  # ================= 4. Spring Boot 后端 =================
+  backend:
+    build: .
+    container_name: labsystem-backend
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      # 默认按 dev 跑，如果你在生产环境，请在 .env 中设置 SPRING_PROFILES_ACTIVE=prod
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev} 
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USERNAME=root
+      - DB_PASSWORD=${MYSQL_ROOT_PASSWORD}        # 与 MySQL 保持统一
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}                  # 从 .env 读取
+      
+      # 安全规范：默认严格限制跨域，如需穿透演示，请在 .env 中设置 CORS_ORIGINS=*
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      # 安全规范：默认关闭 cpolar 兼容模式，如需演示，请在 .env 中设置 CPOLAR_COMPATIBLE=true
+      - CPOLAR_COMPATIBLE=${CPOLAR_COMPATIBLE:-false}
+      
+    depends_on:
+      - mysql
+      - redis
+      - minio
+    networks:
+      - lab-net
+
+volumes:
+  mysql-data:
+  redis-data:
+  minio-data:
+
+networks:
+  lab-net:
+    driver: bridge

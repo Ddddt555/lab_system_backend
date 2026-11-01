@@ -4,8 +4,9 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-### STS ###
+### STS / Eclipse ###
 .apt_generated
+.apt_generated_tests
 .classpath
 .factorypath
 .project
@@ -37,3 +38,17 @@ logs/
 uploads/
 *.log
 *.txt
+# 排除生成的代码汇总文件，防止下次被提交
+backend_code.txt
+
+### 压缩包与大文件 ###
+*.tar
+*.zip
+*.rar
+*.gz
+
+### 环境变量与敏感配置 (⚠️ 极度重要) ###
+.env
+.env.*
+# 确保模板文件不被忽略
+!.env.example
