@@ -85,9 +85,6 @@ public class ReportController {
     @RequireRole("student")
     @Transactional(rollbackFor = Exception.class)
     @PostMapping("/upload")
-    // 🛑【核心修复：移除了 public synchronized】🛑
-    // 原因：synchronized 会锁死整个实例，导致多个人同时上传时被迫排队，性能极差。且多台服务器部署时会失效。
-    // 改用 Redis 分布式锁，只锁定当前上传者+项目，互不干扰。
     public Result<String> uploadReport( 
             @RequestParam("file") MultipartFile file,
             @RequestParam("projectNo") String projectNo,
@@ -105,8 +102,6 @@ public class ReportController {
             return Result.error("文件格式非法！只允许上传 PDF、Word、ZIP、RAR 格式。");
         }
         
-     // 🛑【新增：魔数深度校验】🛑
-        // 防止黑客将木马文件改名为 .pdf 上传
         if (!FileTypeUtils.isValidFile(file, suffix)) {
             return Result.error("文件内容与后缀不符，非法文件已被拦截！");
         }
@@ -114,9 +109,7 @@ public class ReportController {
         ExpProject project = projectMapper.selectById(projectNo);
         if (project == null) return Result.error("实验项目不存在！");
 
-        // 分布式锁 Key：锁住当前学生对该项目的上传操作
         String lockKey = "lock:report:upload:" + studentNo + ":" + projectNo;
-        // 尝试获取锁，有效期 5 秒（防止死锁）
         Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, "1", 5, TimeUnit.SECONDS);
         if (!Boolean.TRUE.equals(locked)) {
             return Result.error("您有报告正在上传中，请勿频繁点击！");
@@ -126,28 +119,23 @@ public class ReportController {
         boolean minioUploadSuccess = false;
 
         try {
-            // 1. 先上传文件到 MinIO（耗时操作在锁的保护下进行，防止并发覆盖版本）
             minioService.upload(file, newFileName);
             minioUploadSuccess = true;
 
-            // 2. 更新旧版本状态
             UpdateWrapper<ExpReport> updateWrapper = new UpdateWrapper<>();
             updateWrapper.eq("student_no", studentNo)
                          .eq("project_no", projectNo)
                          .set("is_latest", 0);
             reportMapper.update(null, updateWrapper);
             
-            // 3. 清理被逻辑删除的历史废弃记录，防止唯一键冲突
             reportMapper.deleteOldSoftDeletedReports(studentNo, projectNo);
 
-            // 4. 查最大版本号
             QueryWrapper<ExpReport> qw = new QueryWrapper<>();
             qw.eq("student_no", studentNo).eq("project_no", projectNo)
               .orderByDesc("version").last("limit 1");
             ExpReport lastReport = reportMapper.selectOne(qw);
             int newVersion = (lastReport != null) ? lastReport.getVersion() + 1 : 1;
 
-            // 5. 插入新版本记录
             ExpReport report = new ExpReport();
             report.setReportNo("R" + UUID.randomUUID().toString().substring(0, 8));
             report.setStudentNo(studentNo);
@@ -169,7 +157,6 @@ public class ReportController {
             if (minioUploadSuccess) minioService.remove(newFileName);
             throw new RuntimeException("数据库保存失败，文件已清理，请重试！", e);
         } finally {
-            // 🛑【核心修复】无论成功还是失败，必须释放锁！
             stringRedisTemplate.delete(lockKey);
         }
     }
@@ -189,7 +176,8 @@ public class ReportController {
             String ticket = UUID.randomUUID().toString().replace("-", "");
             String userNo = (String) request.getAttribute("currentUserNo");
             String role = (String) request.getAttribute("currentUserRole");
-            stringRedisTemplate.opsForValue().set("report:ticket:" + ticket, userNo + ":" + role, 30, TimeUnit.SECONDS);
+            // 🛑【核心修复】将 fileName 一起绑定存入 Redis
+            stringRedisTemplate.opsForValue().set("report:ticket:" + ticket, userNo + ":" + role + ":" + fileName, 30, TimeUnit.SECONDS);
             return Result.success(baseUrl + "/api/report/download/" + fileName + "?ticket=" + ticket);
         }
     }
@@ -208,7 +196,8 @@ public class ReportController {
             String ticket = UUID.randomUUID().toString().replace("-", "");
             String userNo = (String) request.getAttribute("currentUserNo");
             String role = (String) request.getAttribute("currentUserRole");
-            stringRedisTemplate.opsForValue().set("report:ticket:" + ticket, userNo + ":" + role, 30, TimeUnit.SECONDS);
+            // 🛑【核心修复】将 fileName 一起绑定存入 Redis
+            stringRedisTemplate.opsForValue().set("report:ticket:" + ticket, userNo + ":" + role + ":" + fileName, 30, TimeUnit.SECONDS);
             return Result.success(baseUrl + "/api/report/preview/" + fileName + "?ticket=" + ticket);
         }
     }
@@ -225,16 +214,30 @@ public class ReportController {
 
     // ========== 3. 后端内部代理获取文件流 ==========
     @GetMapping("/download/{fileName}")
-    public void downloadFile(@PathVariable String fileName, HttpServletResponse response) {
-        streamFromMinio(fileName, response, false);
+    public void downloadFile(@PathVariable String fileName, HttpServletResponse response, HttpServletRequest request) { 
+        streamFromMinio(fileName, response, false, request);
     }
 
     @GetMapping("/preview/{fileName}")
-    public void previewFile(@PathVariable String fileName, HttpServletResponse response) {
-        streamFromMinio(fileName, response, true);
+    public void previewFile(@PathVariable String fileName, HttpServletResponse response, HttpServletRequest request) { 
+        streamFromMinio(fileName, response, true, request);
     }
 
-    private void streamFromMinio(String fileName, HttpServletResponse response, boolean inline) {
+    private void streamFromMinio(String fileName, HttpServletResponse response, boolean inline, HttpServletRequest request) {
+        // 🛑【核心修复 1】校验：如果请求携带了 ticket，那么请求的文件名必须与 ticket 绑定的文件名一致！
+        String ticketFileName = (String) request.getAttribute("ticketFileName");
+        if (ticketFileName != null && !ticketFileName.equals(fileName)) {
+            System.err.println("⚠️ 拦截非法越权：Ticket 绑定文件=" + ticketFileName + ", 尝试下载=" + fileName);
+            response.setStatus(403);
+            return;
+        }
+
+        // 🛑【核心修复 2】校验：如果没有走 ticket（比如直接传 token 的 cpolar 模式），必须查库校验当前用户对该文件是否有权限！
+        if (ticketFileName == null && !hasPermission(fileName, request)) {
+            response.setStatus(403);
+            return;
+        }
+
         try (java.io.InputStream is = minioService.getObjectStream(fileName)) {
             if (inline) {
                 response.setContentType("application/pdf");
@@ -357,7 +360,6 @@ public class ReportController {
 
         if (reportList.isEmpty()) return Result.success(new ArrayList<>());
 
-        // 🛑【核心优化】批量查询学生、行政班、专业、院系，消灭 N+1
         List<String> studentNos = reportList.stream().map(ExpReport::getStudentNo).distinct().collect(Collectors.toList());
         Map<String, Student> studentMap = studentMapper.selectBatchIds(studentNos).stream()
                 .collect(Collectors.toMap(Student::getStudentNo, s -> s, (k1, k2) -> k1));

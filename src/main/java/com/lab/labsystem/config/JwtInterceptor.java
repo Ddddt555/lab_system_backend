@@ -70,6 +70,12 @@ public class JwtInterceptor implements HandlerInterceptor {
                 String[] parts = userInfo.split(":");
                 request.setAttribute("currentUserNo", parts[0]);
                 request.setAttribute("currentUserRole", parts[1]);
+                
+                // 🛑【核心修复】把 ticket 里绑定的文件名取出来，放到 request 里，供 Controller 校验
+                if (parts.length > 2) {
+                    request.setAttribute("ticketFileName", parts[2]);
+                }
+                
                 return true;
             }
         }

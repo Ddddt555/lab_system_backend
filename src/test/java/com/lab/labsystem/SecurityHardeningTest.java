@@ -216,6 +216,43 @@ public class SecurityHardeningTest {
         System.out.println("  ✅ 数据库校验通过，仅存在一条成绩记录\n");
     }
 
+    /**
+     * 【对应修复项】步骤 9：报告下载/预览 对象级越权拦截
+     * 验证点：
+     * 1. 学生尝试获取不属于自己的文件（或不存在的文件）的下载链接时，应返回 400。
+     * 2. 学生尝试直接请求文件流时（没有合法 ticket），应被拦截返回 403。
+     */
+    @Test
+    @Order(5)
+    @DisplayName("9. 测试报告下载越权拦截")
+    void testReportDownloadSecurity() {
+        System.out.println("▶️ [用例4] 测试步骤 9：报告下载对象级越权拦截");
+
+        // 随便构造一个非本人拥有的文件名
+        String otherFileName = "fake_file_other_student.pdf";
+
+        // 1. 尝试获取该文件的下载链接（预期：hasPermission 拦截，返回 400）
+        String getUrlApi = "/api/report/download-url/" + otherFileName;
+        HttpHeaders headers = getHeaders(studentToken);
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+
+        ResponseEntity<Result> linkResponse = restTemplate.exchange(getUrlApi, HttpMethod.GET, entity, Result.class);
+        Result linkResult = linkResponse.getBody();
+
+        assertNotNull(linkResult);
+        assertEquals(400, linkResult.getCode(), "越权获取下载链接未拦截！");
+        assertEquals("没有权限！", linkResult.getMsg());
+        System.out.println("  ✅ 越权获取下载链接被成功拦截，返回: " + linkResult.getMsg());
+
+        // 2. 尝试绕过 Ticket 直接强行请求文件流（预期：streamFromMinio 内部校验拦截，返回 403）
+        String downloadApi = "/api/report/download/" + otherFileName;
+        ResponseEntity<byte[]> streamResponse = restTemplate.exchange(downloadApi, HttpMethod.GET, entity, byte[].class);
+
+        // 注意：Spring 6+ 中使用 getStatusCode().value() 获取状态码
+        assertEquals(403, streamResponse.getStatusCode().value(), "越权直接下载文件流未返回 403！");
+        System.out.println("  ✅ 直接越权下载文件流被成功拦截，返回状态码: 403\n");
+    }
+
     private String fetchTestToken(String username, String role) {
         String url = "/api/login/test?username=" + username + "&role=" + role;
         ResponseEntity<Result> response = restTemplate.postForEntity(url, null, Result.class);
