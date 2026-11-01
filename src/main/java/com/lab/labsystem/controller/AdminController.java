@@ -1,6 +1,7 @@
 package com.lab.labsystem.controller;
 
 import java.io.IOException;
+import java.time.LocalDateTime; // 🛑 新增导入
 import java.util.ArrayList;
 import java.util.List;
 
@@ -210,13 +211,27 @@ public class AdminController {
         if ("student".equals(role)) {
             Student student = studentMapper.selectById(account);
             if (student == null) return Result.error("学生不存在！");
-            student.setPassword(defaultHash); studentMapper.updateById(student);
+            student.setPassword(defaultHash);
+            
+            // 🛑【核心修复】重置密码后，强制要求下次登录必须修改密码
+            student.setMustChangePassword(1);
+            student.setPwdUpdateTime(LocalDateTime.now());
+            studentMapper.updateById(student);
+            
         } else if ("teacher".equals(role)) {
             Teacher teacher = teacherMapper.selectById(account);
             if (teacher == null) return Result.error("教师不存在！");
-            teacher.setPassword(defaultHash); teacherMapper.updateById(teacher);
-        } else { return Result.error("不支持的角色！"); }
-        return Result.success("密码已重置为 123456！");
+            teacher.setPassword(defaultHash);
+            
+            // 🛑【核心修复】重置密码后，强制要求下次登录必须修改密码
+            teacher.setMustChangePassword(1);
+            teacher.setPwdUpdateTime(LocalDateTime.now());
+            teacherMapper.updateById(teacher);
+            
+        } else { 
+            return Result.error("不支持的角色！"); 
+        }
+        return Result.success("密码已重置为 123456，该用户下次登录必须修改密码！");
     }
 
     @PostMapping("/update-password")

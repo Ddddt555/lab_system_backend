@@ -5,9 +5,11 @@ import com.lab.labsystem.common.CaptchaService;
 import com.lab.labsystem.common.JwtUtil;
 import com.lab.labsystem.common.Result;
 import com.lab.labsystem.entity.Student;
+import com.lab.labsystem.entity.SysAdmin;
 import com.lab.labsystem.entity.SysLog;
 import com.lab.labsystem.entity.Teacher;
 import com.lab.labsystem.mapper.StudentMapper;
+import com.lab.labsystem.mapper.SysAdminMapper;
 import com.lab.labsystem.mapper.SysLogMapper;
 import com.lab.labsystem.mapper.TeacherMapper;
 import com.lab.labsystem.service.AdminService;
@@ -35,6 +37,7 @@ public class LoginController {
 
     @Autowired private StudentMapper studentMapper;
     @Autowired private TeacherMapper teacherMapper;
+    @Autowired private SysAdminMapper sysAdminMapper; // 🛑 新增：用于查管理员信息
     @Autowired private AdminService adminService;
     @Autowired private BCryptPasswordEncoder passwordEncoder;
     @Autowired private SysLogMapper logMapper;
@@ -133,7 +136,12 @@ public class LoginController {
 
         String token = JwtUtil.generateToken(student.getStudentNo(), "student");
         Map<String, Object> data = new HashMap<>();
-        data.put("user", new LoginUserVO(student.getStudentNo(), student.getName(), "student"));
+        
+        // 🛑【核心修复】封装 VO，设置是否需要强制改密
+        LoginUserVO userVO = new LoginUserVO(student.getStudentNo(), student.getName(), "student");
+        userVO.setMustChangePassword(student.getMustChangePassword() != null && student.getMustChangePassword() == 1);
+        
+        data.put("user", userVO);
         data.put("token", token);
 
         return Result.success(data);
@@ -178,7 +186,12 @@ public class LoginController {
 
         String token = JwtUtil.generateToken(teacher.getWorkNo(), "teacher");
         Map<String, Object> data = new HashMap<>();
-        data.put("user", new LoginUserVO(teacher.getWorkNo(), teacher.getName(), "teacher"));
+        
+        // 🛑【核心修复】封装 VO，设置是否需要强制改密
+        LoginUserVO userVO = new LoginUserVO(teacher.getWorkNo(), teacher.getName(), "teacher");
+        userVO.setMustChangePassword(teacher.getMustChangePassword() != null && teacher.getMustChangePassword() == 1);
+        
+        data.put("user", userVO);
         data.put("token", token);
 
         return Result.success(data);
@@ -208,7 +221,13 @@ public class LoginController {
 
             String token = JwtUtil.generateToken(username, "admin");
             Map<String, Object> data = new HashMap<>();
-            data.put("user", new LoginUserVO(username, "超级管理员", "admin"));
+            
+            // 🛑【核心修复】查询管理员信息，设置是否需要强制改密
+            SysAdmin admin = sysAdminMapper.selectOne(new QueryWrapper<SysAdmin>().eq("username", username));
+            LoginUserVO userVO = new LoginUserVO(username, "超级管理员", "admin");
+            userVO.setMustChangePassword(admin != null && admin.getMustChangePassword() != null && admin.getMustChangePassword() == 1);
+            
+            data.put("user", userVO);
             data.put("token", token);
 
             return Result.success(data);
@@ -237,23 +256,11 @@ public class LoginController {
             activeProfile = System.getenv("SPRING_PROFILES_ACTIVE");
         }
         if ("prod".equals(activeProfile)) {
-            throw new org.springframework.web.servlet.resource.NoResourceFoundException(
-                    org.springframework.http.HttpMethod.POST, "/api/login/test", null);
+            // 🛑 伪装成标准的 404 Not Found 异常
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.NOT_FOUND, "Not Found");
         }
 
-        // =========================================================
-        // 🛑【严重警告：超级后门，请勿在生产环境开启！】🛑
-        // =========================================================
-        // 本接口主要用于：
-        // 1. 自动化集成测试（如 SecurityHardeningTest）。
-        // 2. 内部演示时快捷登录。
-        // 
-        // 【安全防呆机制】：
-        // 必须依赖 application.yaml 中的 app.security.test-login-enabled 开关，
-        // 在 IDEA 的公网演示环境变量中必须强制注入 TEST_LOGIN_ENABLED=false，彻底锁死此接口！
-        // 
-        // 🚫 绝对禁止任何人为了图方便，将此处的 if 判断直接删掉或写死 bypass！
-        // =========================================================
         if (!testLoginEnabled) {
             return Result.error("【测试接口已禁用】请勿在生产环境尝试非法登录！");
         }

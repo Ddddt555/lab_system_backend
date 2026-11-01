@@ -341,6 +341,11 @@ public class StudentController {
             return Result.error("原密码错误！");
         }
         student.setPassword(passwordEncoder.encode(newPwd));
+        
+        // 🛑【核心修复】改密成功后，重置强制改密状态和更新时间
+        student.setMustChangePassword(0);
+        student.setPwdUpdateTime(java.time.LocalDateTime.now());
+        
         studentMapper.updateById(student);
         return Result.success("密码修改成功，请重新登录！");
     }

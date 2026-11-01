@@ -1,6 +1,12 @@
 package com.lab.labsystem.config;
 
 import com.lab.labsystem.common.JwtUtil;
+import com.lab.labsystem.entity.Student;
+import com.lab.labsystem.entity.SysAdmin;
+import com.lab.labsystem.entity.Teacher;
+import com.lab.labsystem.mapper.StudentMapper;
+import com.lab.labsystem.mapper.SysAdminMapper;
+import com.lab.labsystem.mapper.TeacherMapper;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -10,9 +16,19 @@ import org.springframework.web.servlet.HandlerInterceptor;
 public class JwtInterceptor implements HandlerInterceptor {
 
     private final StringRedisTemplate stringRedisTemplate;
+    private final StudentMapper studentMapper;
+    private final TeacherMapper teacherMapper;
+    private final SysAdminMapper sysAdminMapper;
 
-    public JwtInterceptor(StringRedisTemplate stringRedisTemplate) {
+    // 🛑 构造函数，接收这四个参数
+    public JwtInterceptor(StringRedisTemplate stringRedisTemplate, 
+                          StudentMapper studentMapper, 
+                          TeacherMapper teacherMapper, 
+                          SysAdminMapper sysAdminMapper) {
         this.stringRedisTemplate = stringRedisTemplate;
+        this.studentMapper = studentMapper;
+        this.teacherMapper = teacherMapper;
+        this.sysAdminMapper = sysAdminMapper;
     }
 
     @Override
@@ -26,7 +42,7 @@ public class JwtInterceptor implements HandlerInterceptor {
         if (token != null && token.startsWith("Bearer ")) {
             token = token.substring(7);
         } else {
-            // ⚠️ 2. 如果 Header 没有，尝试从 URL 参数获取（专为 window.open 准备，兼容 cpolar）
+            // ⚠️ 2. 如果 Header 没有，尝试从 URL 参数获取
             String paramToken = request.getParameter("token");
             if (paramToken != null && !paramToken.isEmpty()) {
                 token = paramToken;
@@ -43,8 +59,35 @@ public class JwtInterceptor implements HandlerInterceptor {
                     return false;
                 }
 
-                request.setAttribute("currentUserNo", claims.getSubject());
-                request.setAttribute("currentUserRole", claims.get("role"));
+                String userNo = claims.getSubject();
+                String role = (String) claims.get("role");
+
+                request.setAttribute("currentUserNo", userNo);
+                request.setAttribute("currentUserRole", role);
+
+                // =========================================================
+                // 🛑【核心防线】检查用户是否需要强制修改密码
+                // =========================================================
+                boolean mustChange = false;
+                if ("student".equals(role)) {
+                    Student s = studentMapper.selectById(userNo);
+                    mustChange = (s != null && s.getMustChangePassword() != null && s.getMustChangePassword() == 1);
+                } else if ("teacher".equals(role)) {
+                    Teacher t = teacherMapper.selectById(userNo);
+                    mustChange = (t != null && t.getMustChangePassword() != null && t.getMustChangePassword() == 1);
+                } else if ("admin".equals(role)) {
+                    SysAdmin a = sysAdminMapper.selectById(userNo);
+                    mustChange = (a != null && a.getMustChangePassword() != null && a.getMustChangePassword() == 1);
+                }
+
+                // 如果需要强制改密，且当前请求的 URI 不是修改密码接口
+                String uri = request.getRequestURI();
+                if (mustChange && !uri.endsWith("/update-password")) {
+                    response.setStatus(403);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"code\":403,\"msg\":\"请先修改初始密码！\",\"data\":null}");
+                    return false;
+                }
 
                 return true; 
                 
@@ -57,9 +100,6 @@ public class JwtInterceptor implements HandlerInterceptor {
         // =========================================================
         // ⚠️ 3. 安全规范轨：尝试解析短时效一次性票据 (Ticket)
         // =========================================================
-        // 🛑【警告：不要删除此段逻辑】🛑
-        // 在非 cpolar 环境下，文件下载是通过 URL 携带 ticket 实现的。
-        // 如果没有这段逻辑，所有生产环境的文件下载都会被拦截并返回 401！
         String ticket = request.getParameter("ticket");
         if (ticket != null && !ticket.isEmpty()) {
             String redisKey = "report:ticket:" + ticket;

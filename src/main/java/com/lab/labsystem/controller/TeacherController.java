@@ -495,6 +495,11 @@ public class TeacherController {
         if (teacher == null || !passwordEncoder.matches(oldPwd, teacher.getPassword()))
             return Result.error("原密码错误！");
         teacher.setPassword(passwordEncoder.encode(newPwd));
+        
+        // 🛑【核心修复】改密成功后，重置强制改密状态和更新时间
+        teacher.setMustChangePassword(0);
+        teacher.setPwdUpdateTime(java.time.LocalDateTime.now());
+        
         teacherMapper.updateById(teacher);
         return Result.success("密码修改成功！");
     }

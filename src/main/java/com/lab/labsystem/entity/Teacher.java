@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
+import java.time.LocalDateTime; // ⚠️ 新增导入
 
 @Data
 @TableName("teacher")
@@ -18,6 +19,12 @@ public class Teacher {
     private String titleNo;
     @TableLogic
     private Integer deleted;
+
+    // 🛑【新增字段】是否强制修改密码
+    private Integer mustChangePassword;
+    
+    // 🛑【新增字段】密码最后更新时间
+    private LocalDateTime pwdUpdateTime;
     
     public String getWorkNo() { return workNo; }
     public void setWorkNo(String workNo) { this.workNo = workNo; }
@@ -32,4 +39,11 @@ public class Teacher {
     public void setTitleNo(String titleNo) { this.titleNo = titleNo; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
+
+    // 🛑 新字段的 Get 和 Set
+    public Integer getMustChangePassword() { return mustChangePassword; }
+    public void setMustChangePassword(Integer mustChangePassword) { this.mustChangePassword = mustChangePassword; }
+
+    public LocalDateTime getPwdUpdateTime() { return pwdUpdateTime; }
+    public void setPwdUpdateTime(LocalDateTime pwdUpdateTime) { this.pwdUpdateTime = pwdUpdateTime; }
 }

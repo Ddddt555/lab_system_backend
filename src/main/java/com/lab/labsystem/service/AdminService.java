@@ -30,6 +30,11 @@ public class AdminService {
         if (admin != null && passwordEncoder.matches(oldPassword, admin.getPassword())) {
             // 存入新密码的哈希值
             admin.setPassword(passwordEncoder.encode(newPassword));
+            
+            // 🛑【核心修复】改密成功后，重置强制改密状态和更新时间
+            admin.setMustChangePassword(0);
+            admin.setPwdUpdateTime(java.time.LocalDateTime.now());
+            
             adminMapper.updateById(admin);
             return true;
         }

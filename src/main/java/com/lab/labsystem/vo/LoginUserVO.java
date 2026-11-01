@@ -10,12 +10,16 @@ public class LoginUserVO {
     private String name;
     private String role;   // student / teacher / admin
 
+    // 🛑【新增】告诉前端是否需要强制改密 (true: 需要, false: 不需要)
+    private Boolean mustChangePassword; 
+
     public LoginUserVO() {}
 
     public LoginUserVO(String userNo, String name, String role) {
         this.userNo = userNo;
         this.name = name;
         this.role = role;
+        this.mustChangePassword = false; // 默认不需要改密
     }
 
     public String getUserNo() { return userNo; }
@@ -26,4 +30,8 @@ public class LoginUserVO {
 
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+
+    // 🛑【新增字段的 Get 和 Set】
+    public Boolean getMustChangePassword() { return mustChangePassword; }
+    public void setMustChangePassword(Boolean mustChangePassword) { this.mustChangePassword = mustChangePassword; }
 }
