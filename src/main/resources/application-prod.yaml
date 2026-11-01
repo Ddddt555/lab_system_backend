@@ -1,0 +1,40 @@
+# ============================================================
+# 生产环境专属配置 (必须严格隔离)
+# ============================================================
+app:
+  security:
+    # 🛑 生产环境绝对禁止通过后门登录！
+    test-login-enabled: false
+  # 🛑 生产环境绝对禁止开启 cpolar 兼容
+  cpolar-compatible: false
+
+# 🛑 生产环境关闭 Knife4j 接口文档
+knife4j:
+  enable: false
+  production: true
+
+# 生产环境必须配置明确的跨域白名单（上线时改为真实域名）
+cors:
+  allowed-origins: ${CORS_ORIGINS:https://your-domain.com}
+
+# ============================================================
+# 生产环境性能与安全调优
+# ============================================================
+# 1. 生产环境不打印 MyBatis 的 SQL，否则日志会爆炸且泄露隐私
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+# 2. 生产环境把日志级别调整为 info，不要用 debug
+logging:
+  level:
+    root: info
+    com.lab.labsystem: info
+
+# 3. 数据库连接池 Hikari 生产级优化（可选）
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000

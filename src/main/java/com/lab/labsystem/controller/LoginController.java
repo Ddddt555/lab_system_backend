@@ -230,6 +230,18 @@ public class LoginController {
             @RequestParam String role) {
         
         // =========================================================
+        // 🛑【核心修复】在生产环境下，直接抛出 404 异常（伪装成接口不存在）
+        // =========================================================
+        String activeProfile = System.getProperty("spring.profiles.active");
+        if (activeProfile == null) {
+            activeProfile = System.getenv("SPRING_PROFILES_ACTIVE");
+        }
+        if ("prod".equals(activeProfile)) {
+            throw new org.springframework.web.servlet.resource.NoResourceFoundException(
+                    org.springframework.http.HttpMethod.POST, "/api/login/test", null);
+        }
+
+        // =========================================================
         // 🛑【严重警告：超级后门，请勿在生产环境开启！】🛑
         // =========================================================
         // 本接口主要用于：
