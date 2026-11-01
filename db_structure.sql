@@ -248,6 +248,8 @@ CREATE TABLE `student` (
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `admin_class_no` varchar(50) DEFAULT NULL COMMENT '所属行政班号',
   `deleted` tinyint DEFAULT '0' COMMENT '逻辑删除: 0未删, 1已删',
+  `must_change_password` tinyint DEFAULT '1' COMMENT '是否强制修改密码: 1是, 0否',
+  `pwd_update_time` datetime DEFAULT NULL COMMENT '密码最后更新时间',
   PRIMARY KEY (`student_no`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='学生表';
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -301,6 +303,8 @@ CREATE TABLE `sys_admin` (
   `username` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
   `password` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `deleted` tinyint DEFAULT '0' COMMENT '逻辑删除: 0未删, 1已删',
+  `must_change_password` tinyint DEFAULT '1' COMMENT '是否强制修改密码: 1是, 0否',
+  `pwd_update_time` datetime DEFAULT NULL COMMENT '密码最后更新时间',
   PRIMARY KEY (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -319,7 +323,7 @@ CREATE TABLE `sys_log` (
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
   `deleted` tinyint DEFAULT '0',
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=236 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=290 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -391,6 +395,8 @@ CREATE TABLE `teacher` (
   `dept_no` varchar(50) DEFAULT NULL COMMENT '所属院系',
   `title_no` varchar(50) DEFAULT NULL COMMENT '职称号',
   `deleted` tinyint DEFAULT '0' COMMENT '逻辑删除: 0未删, 1已删',
+  `must_change_password` tinyint DEFAULT '1' COMMENT '是否强制修改密码: 1是, 0否',
+  `pwd_update_time` datetime DEFAULT NULL COMMENT '密码最后更新时间',
   PRIMARY KEY (`work_no`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='教师表';
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -437,4 +443,4 @@ CREATE TABLE `waitlist_record` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-10-30 23:02:45
+-- Dump completed on 2026-11-01 18:16:59

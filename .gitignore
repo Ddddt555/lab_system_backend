@@ -52,3 +52,8 @@ backend_code.txt
 .env.*
 # 确保模板文件不被忽略
 !.env.example
+
+### 前端编译产物（不提交到后端仓库） ###
+src/main/resources/static/assets/
+src/main/resources/static/index.html
+src/main/resources/static/favicon.ico
