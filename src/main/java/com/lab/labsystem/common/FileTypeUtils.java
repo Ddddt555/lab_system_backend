@@ -3,44 +3,63 @@ package com.lab.labsystem.common;
 import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 public class FileTypeUtils {
 
-    /**
-     * 校验文件真实类型（魔数校验）
-     * @param file 上传的文件
-     * @param expectedSuffix 期望的后缀名（如 .pdf）
-     * @return 是否为真实合法的文件
-     */
     public static boolean isValidFile(MultipartFile file, String expectedSuffix) {
         if (file.isEmpty()) return false;
         
         byte[] header = new byte[8];
         try (InputStream is = file.getInputStream()) {
             int read = is.read(header);
-            if (read < 4) return false; // 文件太小，肯定不合法
+            if (read < 4) return false; 
 
-            // 转为十六进制字符串比对
             String hex = bytesToHex(header);
             
             switch (expectedSuffix.toLowerCase()) {
                 case ".pdf":
-                    // %PDF: 25 50 44 46
                     return hex.startsWith("25504446");
                 case ".docx":
                 case ".zip":
-                    // PK: 50 4B 03 04 (docx 本质上是个 zip)
-                    return hex.startsWith("504B0304");
+                    // 🛑【核心修复】不仅查魔数，还要防 ZIP 炸弹
+                    if (!hex.startsWith("504B0304")) return false;
+                    return isSafeZip(file);
                 case ".rar":
-                    // Rar!: 52 61 72 21
                     return hex.startsWith("52617221");
                 case ".doc":
-                    // OLE2: D0 CF 11 E0 A1 B1 1A E1 (老版 Word)
                     return hex.startsWith("D0CF11E0");
                 default:
                     return false;
             }
         } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /**
+     * 🛑【新增】防 Zip 炸弹：限制压缩包内文件数量和解压后的总大小
+     */
+    private static boolean isSafeZip(MultipartFile file) {
+        long totalUncompressedSize = 0;
+        int entryCount = 0;
+        final long MAX_SIZE = 200L * 1024 * 1024; // 限制解压后最大 200MB
+        final int MAX_ENTRIES = 1000;             // 限制最多 1000 个文件
+
+        try (ZipInputStream zis = new ZipInputStream(file.getInputStream())) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                entryCount++;
+                if (entryCount > MAX_ENTRIES) return false;
+                
+                totalUncompressedSize += entry.getSize();
+                if (totalUncompressedSize > MAX_SIZE) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception e) {
             return false;
         }
     }

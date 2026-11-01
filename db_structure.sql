@@ -322,8 +322,14 @@ CREATE TABLE `sys_log` (
   `action` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '操作动作',
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
   `deleted` tinyint DEFAULT '0',
+  `ip` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '操作IP',
+  `method` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '请求方法',
+  `uri` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '请求URI',
+  `cost_ms` bigint DEFAULT NULL COMMENT '耗时(毫秒)',
+  `success` tinyint DEFAULT '1' COMMENT '是否成功(1成功, 0失败)',
+  `error_msg` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '错误信息(如果失败)',
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=290 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=291 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -443,4 +449,4 @@ CREATE TABLE `waitlist_record` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-11-01 18:16:59
+-- Dump completed on 2026-11-01 19:25:04

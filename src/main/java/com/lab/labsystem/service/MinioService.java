@@ -99,4 +99,16 @@ public class MinioService {
         }
         return fileNames;
     }
+    /**
+     * 🛑【新增】获取文件的最后修改时间（用于防误删正在上传的文件）
+     */
+    public java.time.LocalDateTime getLastModifiedTime(String objectName) throws Exception {
+        io.minio.StatObjectResponse stat = minioClient.statObject(
+            io.minio.StatObjectArgs.builder()
+                .bucket(bucketName)
+                .object(objectName)
+                .build()
+        );
+        return java.time.LocalDateTime.ofInstant(stat.lastModified().toInstant(), java.time.ZoneId.systemDefault());
+    }
 }
