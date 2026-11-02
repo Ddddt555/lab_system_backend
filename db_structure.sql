@@ -500,4 +500,4 @@ CREATE TABLE `waitlist_record` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-11-02  9:50:35
+-- Dump completed on 2026-11-02  9:56:46
