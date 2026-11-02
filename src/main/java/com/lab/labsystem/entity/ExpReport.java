@@ -3,6 +3,8 @@ package com.lab.labsystem.entity;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.FieldFill;
 import lombok.Data;
 import java.time.LocalDateTime;
 
@@ -13,16 +15,23 @@ public class ExpReport {
     private String reportNo;
     private String studentNo;
     private String projectNo;
-    private String fileUrl; // 文件存储的路径或文件名
+    private String fileUrl;
     private Integer version;
     private LocalDateTime submitTime;
     private Double score;
     private String comment;
-    private Integer isLatest; // 1表示最新版本，0表示历史版本
+    private Integer isLatest;
     @TableLogic
     private Integer deleted;
 
-    // 手动补齐 get/set，防 Lombok 报错
+    // 🛑【新增字段】
+    @TableField(fill = FieldFill.INSERT)
+    private LocalDateTime createTime;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updateTime;
+
+    // --- 手动补齐 get/set ---
     public String getReportNo() { return reportNo; }
     public void setReportNo(String reportNo) { this.reportNo = reportNo; }
     public String getStudentNo() { return studentNo; }
@@ -39,13 +48,14 @@ public class ExpReport {
     public void setScore(Double score) { this.score = score; }
     public String getComment() { return comment; }
     public void setComment(String comment) { this.comment = comment; }
-    public Integer getIsLatest() {
-        return isLatest;
-    }
-
-    public void setIsLatest(Integer isLatest) {
-        this.isLatest = isLatest;
-    }
+    public Integer getIsLatest() { return isLatest; }
+    public void setIsLatest(Integer isLatest) { this.isLatest = isLatest; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
+
+    // 🛑 新增字段的 Get/Set
+    public LocalDateTime getCreateTime() { return createTime; }
+    public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
+    public LocalDateTime getUpdateTime() { return updateTime; }
+    public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
 }
