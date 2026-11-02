@@ -47,6 +47,8 @@ CREATE TABLE `attendance_record` (
   `student_no` varchar(50) NOT NULL COMMENT '学号',
   `sign_time` datetime DEFAULT NULL COMMENT '签到时间',
   `status` int DEFAULT '1' COMMENT '1已签到',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_session_student` (`session_no`,`student_no`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='考勤签到记录表';
@@ -100,7 +102,11 @@ CREATE TABLE `exp_project` (
   `standard` varchar(255) DEFAULT NULL COMMENT '考核标准',
   `class_no` varchar(50) DEFAULT NULL COMMENT '所属教学班号',
   `deleted` tinyint DEFAULT '0' COMMENT '逻辑删除: 0未删, 1已删',
-  PRIMARY KEY (`project_no`)
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`project_no`),
+  KEY `fk_project_teach_class` (`class_no`),
+  CONSTRAINT `fk_project_teach_class` FOREIGN KEY (`class_no`) REFERENCES `teach_class` (`class_no`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='实验项目表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -122,9 +128,12 @@ CREATE TABLE `exp_report` (
   `score` decimal(5,2) DEFAULT NULL COMMENT '报告得分',
   `comment` varchar(500) DEFAULT NULL COMMENT '教师评语',
   `deleted` tinyint DEFAULT '0',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`report_no`),
   UNIQUE KEY `uk_student_project_version` (`student_no`,`project_no`,`version`,`deleted`),
-  KEY `project_no` (`project_no`),
+  KEY `idx_student_project` (`student_no`,`project_no`),
+  KEY `idx_project_latest` (`project_no`,`is_latest`),
   CONSTRAINT `exp_report_ibfk_1` FOREIGN KEY (`student_no`) REFERENCES `student` (`student_no`) ON DELETE CASCADE,
   CONSTRAINT `exp_report_ibfk_2` FOREIGN KEY (`project_no`) REFERENCES `exp_project` (`project_no`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='实验报告表';
@@ -147,7 +156,10 @@ CREATE TABLE `exp_score` (
   `class_no` varchar(50) DEFAULT NULL COMMENT '关联教学班号',
   `deleted` tinyint DEFAULT '0',
   PRIMARY KEY (`score_no`),
-  UNIQUE KEY `uk_student_class` (`student_no`,`class_no`,`deleted`)
+  UNIQUE KEY `uk_student_class` (`student_no`,`class_no`,`deleted`),
+  KEY `fk_score_teach_class` (`class_no`),
+  CONSTRAINT `fk_score_student` FOREIGN KEY (`student_no`) REFERENCES `student` (`student_no`) ON DELETE CASCADE,
+  CONSTRAINT `fk_score_teach_class` FOREIGN KEY (`class_no`) REFERENCES `teach_class` (`class_no`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='成绩汇总表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -175,10 +187,34 @@ CREATE TABLE `exp_session` (
   KEY `project_no` (`project_no`),
   KEY `room_no` (`room_no`),
   KEY `work_no` (`work_no`),
+  KEY `idx_semester_time` (`semester`,`week_num`,`day_of_week`,`period`),
   CONSTRAINT `exp_session_ibfk_1` FOREIGN KEY (`project_no`) REFERENCES `exp_project` (`project_no`) ON DELETE CASCADE,
   CONSTRAINT `exp_session_ibfk_2` FOREIGN KEY (`room_no`) REFERENCES `lab_room` (`room_no`),
   CONSTRAINT `exp_session_ibfk_3` FOREIGN KEY (`work_no`) REFERENCES `teacher` (`work_no`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='实验场次表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `flyway_schema_history`
+--
+
+DROP TABLE IF EXISTS `flyway_schema_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `flyway_schema_history` (
+  `installed_rank` int NOT NULL,
+  `version` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `script` varchar(1000) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `checksum` int DEFAULT NULL,
+  `installed_by` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `installed_on` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `execution_time` int NOT NULL,
+  `success` tinyint(1) NOT NULL,
+  PRIMARY KEY (`installed_rank`),
+  KEY `flyway_schema_history_s_idx` (`success`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -250,7 +286,9 @@ CREATE TABLE `student` (
   `deleted` tinyint DEFAULT '0' COMMENT '逻辑删除: 0未删, 1已删',
   `must_change_password` tinyint DEFAULT '1' COMMENT '是否强制修改密码: 1是, 0否',
   `pwd_update_time` datetime DEFAULT NULL COMMENT '密码最后更新时间',
-  PRIMARY KEY (`student_no`)
+  PRIMARY KEY (`student_no`),
+  KEY `fk_student_admin_class` (`admin_class_no`),
+  CONSTRAINT `fk_student_admin_class` FOREIGN KEY (`admin_class_no`) REFERENCES `admin_class` (`admin_class_no`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='学生表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -267,9 +305,12 @@ CREATE TABLE `student_booking` (
   `session_no` varchar(20) NOT NULL COMMENT '场次号',
   `booking_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '预约时间',
   `status` tinyint DEFAULT '1' COMMENT '状态：1已预约，0已取消',
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`booking_no`),
   UNIQUE KEY `uk_student_session` (`student_no`,`session_no`),
   KEY `session_no` (`session_no`),
+  KEY `idx_student_status` (`student_no`,`status`),
   CONSTRAINT `student_booking_ibfk_1` FOREIGN KEY (`student_no`) REFERENCES `student` (`student_no`) ON DELETE CASCADE,
   CONSTRAINT `student_booking_ibfk_2` FOREIGN KEY (`session_no`) REFERENCES `exp_session` (`session_no`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='学生预约记录表';
@@ -288,8 +329,9 @@ CREATE TABLE `student_teach_class` (
   `class_no` varchar(50) NOT NULL COMMENT '教学班号',
   `semester` varchar(50) DEFAULT NULL COMMENT '选课学期',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_student_class` (`student_no`,`class_no`)
-) ENGINE=InnoDB AUTO_INCREMENT=23 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='学生选教学班记录表';
+  UNIQUE KEY `uk_student_class` (`student_no`,`class_no`),
+  KEY `idx_student` (`student_no`)
+) ENGINE=InnoDB AUTO_INCREMENT=26 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='学生选教学班记录表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -328,8 +370,9 @@ CREATE TABLE `sys_log` (
   `cost_ms` bigint DEFAULT NULL COMMENT '耗时(毫秒)',
   `success` tinyint DEFAULT '1' COMMENT '是否成功(1成功, 0失败)',
   `error_msg` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '错误信息(如果失败)',
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=291 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  PRIMARY KEY (`id`),
+  KEY `idx_create_time` (`create_time`)
+) ENGINE=InnoDB AUTO_INCREMENT=316 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -382,7 +425,13 @@ CREATE TABLE `teach_class` (
   `daily_weight` int DEFAULT '30' COMMENT '平时成绩权重(%)',
   `report_weight` int DEFAULT '70' COMMENT '报告成绩权重(%)',
   `deleted` tinyint DEFAULT '0' COMMENT '逻辑删除: 0未删, 1已删',
-  PRIMARY KEY (`class_no`)
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`class_no`),
+  KEY `fk_teach_course` (`course_no`),
+  KEY `fk_teach_teacher` (`work_no`),
+  CONSTRAINT `fk_teach_course` FOREIGN KEY (`course_no`) REFERENCES `exp_course` (`course_no`) ON DELETE CASCADE,
+  CONSTRAINT `fk_teach_teacher` FOREIGN KEY (`work_no`) REFERENCES `teacher` (`work_no`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='教学班表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -434,6 +483,8 @@ CREATE TABLE `waitlist_record` (
   `session_no` varchar(50) NOT NULL COMMENT '场次号',
   `student_no` varchar(50) NOT NULL COMMENT '学号',
   `create_time` datetime DEFAULT NULL COMMENT '排队时间',
+  `status` varchar(20) DEFAULT 'WAITING' COMMENT '状态: WAITING-排队中, BOOKED-已补位成功',
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_session_student` (`session_no`,`student_no`),
   KEY `idx_session` (`session_no`)
@@ -449,4 +500,4 @@ CREATE TABLE `waitlist_record` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-11-01 19:25:04
+-- Dump completed on 2026-11-02  9:50:35
