@@ -1,7 +1,7 @@
 package com.lab.labsystem.controller;
 
 import java.io.IOException;
-import java.time.LocalDateTime; // 🛑 新增导入
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -13,7 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.annotation.LogRecord;
-import com.lab.labsystem.annotation.RequireRole; // ⚠️ 新增导入
+import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.ExcelUtils;
 import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.common.Result;
@@ -24,9 +24,10 @@ import com.lab.labsystem.service.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
 
 @Tag(name = "管理员端接口", description = "包含学生、教师、院系、专业、课程、实验室等基础数据的增删改查及批量操作")
-@RequireRole("admin") // ⚠️ 新增：类级别鉴权，该类下所有接口必须是 admin 角色才能访问
+@RequireRole("admin")
 @RestController
 @RequestMapping("/api/admin")
 public class AdminController {
@@ -69,7 +70,7 @@ public class AdminController {
     @Operation(summary = "新增学生")
     @LogRecord("新增学生")
     @PostMapping("/student/add")
-    public Result<String> addStudent(@RequestBody Student student) {
+    public Result<String> addStudent(@Valid @RequestBody Student student) {
         return Result.success(studentService.addStudent(student));
     }
 
@@ -91,7 +92,7 @@ public class AdminController {
     @Operation(summary = "新增教师")
     @LogRecord("新增教师")
     @PostMapping("/teacher/add")
-    public Result<String> addTeacher(@RequestBody Teacher teacher) {
+    public Result<String> addTeacher(@Valid @RequestBody Teacher teacher) {
         return Result.success(teacherService.addTeacher(teacher));
     }
 
@@ -113,7 +114,7 @@ public class AdminController {
     @Operation(summary = "新增专业")
     @LogRecord("新增专业")
     @PostMapping("/major/add")
-    public Result<String> addMajor(@RequestBody Major major) {
+    public Result<String> addMajor(@Valid @RequestBody Major major) {
         return Result.success(orgService.addMajor(major));
     }
 
@@ -134,7 +135,7 @@ public class AdminController {
     @Operation(summary = "新增行政班")
     @LogRecord("新增行政班")
     @PostMapping("/admin-class/add")
-    public Result<String> addAdminClass(@RequestBody AdminClass adminClass) {
+    public Result<String> addAdminClass(@Valid @RequestBody AdminClass adminClass) { // 🛑 加上 @Valid
         return Result.success(orgService.addAdminClass(adminClass));
     }
 
@@ -156,7 +157,7 @@ public class AdminController {
     @Operation(summary = "创建教学班")
     @LogRecord("创建教学班")
     @PostMapping("/teach-class/add")
-    public Result<String> addTeachClass(@RequestBody TeachClass teachClass) {
+    public Result<String> addTeachClass(@Valid @RequestBody TeachClass teachClass) { // 🛑 加上 @Valid
         return Result.success(teachingService.addTeachClass(teachClass));
     }
 
@@ -175,7 +176,7 @@ public class AdminController {
 
     @LogRecord("新增院系")
     @PostMapping("/department/add")
-    public Result<String> addDepartment(@RequestBody Department dept) {
+    public Result<String> addDepartment(@Valid @RequestBody Department dept) {
         dept.setDeptNo(numberGenerator.generateDeptNo());
         departmentMapper.insert(dept);
         return Result.success("院系添加成功！院系号为：" + dept.getDeptNo());
@@ -192,7 +193,7 @@ public class AdminController {
 
     @LogRecord("新增职称")
     @PostMapping("/title/add")
-    public Result<String> addTitle(@RequestBody TitleDict title) {
+    public Result<String> addTitle(@Valid @RequestBody TitleDict title) {
         title.setTitleNo(numberGenerator.generateTitleNo());
         titleDictMapper.insert(title);
         return Result.success("职称添加成功！职称号为：" + title.getTitleNo());
@@ -213,7 +214,6 @@ public class AdminController {
             if (student == null) return Result.error("学生不存在！");
             student.setPassword(defaultHash);
             
-            // 🛑【核心修复】重置密码后，强制要求下次登录必须修改密码
             student.setMustChangePassword(1);
             student.setPwdUpdateTime(LocalDateTime.now());
             studentMapper.updateById(student);
@@ -223,7 +223,6 @@ public class AdminController {
             if (teacher == null) return Result.error("教师不存在！");
             teacher.setPassword(defaultHash);
             
-            // 🛑【核心修复】重置密码后，强制要求下次登录必须修改密码
             teacher.setMustChangePassword(1);
             teacher.setPwdUpdateTime(LocalDateTime.now());
             teacherMapper.updateById(teacher);
@@ -248,7 +247,7 @@ public class AdminController {
 
     @LogRecord("新增实验室")
     @PostMapping("/lab/add")
-    public Result<String> addLab(@RequestBody LabRoom labRoom) {
+    public Result<String> addLab(@Valid @RequestBody LabRoom labRoom) { // 🛑 加上 @Valid
         labRoom.setRoomNo(numberGenerator.generateRoomNo());
         labRoomMapper.insert(labRoom);
         return Result.success("实验室添加成功！实验室号为：" + labRoom.getRoomNo());
@@ -268,7 +267,7 @@ public class AdminController {
 
     @LogRecord("新增课程")
     @PostMapping("/course/add")
-    public Result<String> addCourse(@RequestBody ExpCourse course) {
+    public Result<String> addCourse(@Valid @RequestBody ExpCourse course) { // 🛑 加上 @Valid
         course.setCourseNo(numberGenerator.generateCourseNo());
         courseMapper.insert(course);
         return Result.success("课程添加成功！课程号为：" + course.getCourseNo());
@@ -285,7 +284,7 @@ public class AdminController {
 
     @LogRecord("新增设备")
     @PostMapping("/equipment/add")
-    public Result<String> addEquipment(@RequestBody LabEquipment equip) {
+    public Result<String> addEquipment(@Valid @RequestBody LabEquipment equip) { // 🛑 加上 @Valid
         equip.setEquipNo(numberGenerator.generateEquipNo());
         equipMapper.insert(equip);
         return Result.success("设备添加成功！设备号为：" + equip.getEquipNo());
@@ -305,7 +304,7 @@ public class AdminController {
 
     @LogRecord("新增学期")
     @PostMapping("/semester/add")
-    public Result<String> addSemester(@RequestBody SysSemester semester) {
+    public Result<String> addSemester(@Valid @RequestBody SysSemester semester) {
         semesterMapper.insert(semester); return Result.success("学期添加成功！");
     }
 

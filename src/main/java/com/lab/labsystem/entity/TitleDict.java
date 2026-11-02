@@ -3,6 +3,7 @@ package com.lab.labsystem.entity;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 @Data
@@ -10,6 +11,8 @@ import lombok.Data;
 public class TitleDict {
     @TableId("title_no")
     private String titleNo;
+
+    @NotBlank(message = "职称名称不能为空！")
     private String titleName;
     @TableLogic
     private Integer deleted;

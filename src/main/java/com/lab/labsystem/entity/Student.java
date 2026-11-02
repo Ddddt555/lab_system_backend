@@ -4,8 +4,9 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import jakarta.validation.constraints.NotBlank; // 🛑 新增校验注解导入
 import lombok.Data;
-import java.time.LocalDateTime; // ⚠️ 新增导入
+import java.time.LocalDateTime;
 
 @Data
 @TableName("student")
@@ -14,15 +15,19 @@ public class Student {
     @TableId("student_no") // 明确指定主键字段
     private String studentNo;
 
+    // 🛑【新增校验】不能为 null，且不能是空字符串
+    @NotBlank(message = "学生姓名不能为空！")
     @TableField("name")
     private String name;
 
     @TableField("password")
     private String password;
 
-    // ⚠️ 修改：原先的 class_name 和 major 移除了，替换为行政班号
+    // 🛑【新增校验】不能为 null，且不能是空字符串
+    @NotBlank(message = "所属行政班不能为空！")
     @TableField("admin_class_no") 
     private String adminClassNo;
+    
     @TableLogic
     private Integer deleted;
 

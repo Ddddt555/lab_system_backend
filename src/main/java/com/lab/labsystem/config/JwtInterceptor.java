@@ -10,9 +10,11 @@ import com.lab.labsystem.mapper.TeacherMapper;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j; // 🛑 新增
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+@Slf4j // 🛑 开启日志
 public class JwtInterceptor implements HandlerInterceptor {
 
     private final StringRedisTemplate stringRedisTemplate;
@@ -36,12 +38,10 @@ public class JwtInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        // ⚠️ 1. 优先从 Header 获取 Token
         String token = request.getHeader("Authorization");
         if (token != null && token.startsWith("Bearer ")) {
             token = token.substring(7);
         } else {
-            // ⚠️ 2. 如果 Header 没有，尝试从 URL 参数获取
             String paramToken = request.getParameter("token");
             if (paramToken != null && !paramToken.isEmpty()) {
                 token = paramToken;
@@ -54,6 +54,7 @@ public class JwtInterceptor implements HandlerInterceptor {
                 String jti = claims.getId();
                 
                 if (jti != null && Boolean.TRUE.equals(stringRedisTemplate.hasKey("jwt:blacklist:" + jti))) {
+                    log.warn("🚫 试图使用已被拉黑的 Token 访问接口: {}", request.getRequestURI());
                     response.setStatus(401);
                     return false;
                 }
@@ -79,13 +80,13 @@ public class JwtInterceptor implements HandlerInterceptor {
                     mustChange = (a != null && a.getMustChangePassword() != null && a.getMustChangePassword() == 1);
                 }
 
-                // 🛑【核心修复】使用白名单判断，允许强制改密的用户访问必要的接口
                 String uri = request.getRequestURI();
                 boolean isWhitelisted = uri.endsWith("/update-password") || 
                                         uri.endsWith("/notice/list") || 
                                         uri.endsWith("/logout");
 
                 if (mustChange && !isWhitelisted) {
+                    log.warn("⚠️ 用户 {} 未修改初始密码，被强制拦截访问: {}", userNo, uri);
                     response.setStatus(403);
                     response.setContentType("application/json;charset=UTF-8");
                     response.getWriter().write("{\"code\":403,\"msg\":\"请先修改初始密码！\",\"data\":null}");
@@ -95,6 +96,7 @@ public class JwtInterceptor implements HandlerInterceptor {
                 return true; 
                 
             } catch (Exception e) {
+                log.error("❌ 解析 Token 失败: {}", e.getMessage());
                 response.setStatus(401);
                 return false;
             }
@@ -108,18 +110,18 @@ public class JwtInterceptor implements HandlerInterceptor {
             String redisKey = "report:ticket:" + ticket;
             String userInfo = stringRedisTemplate.opsForValue().get(redisKey);
             if (userInfo != null) {
-                // 用后即焚，防止重放攻击
                 stringRedisTemplate.delete(redisKey);
                 String[] parts = userInfo.split(":");
                 request.setAttribute("currentUserNo", parts[0]);
                 request.setAttribute("currentUserRole", parts[1]);
                 
-                // 🛑【核心修复】把 ticket 里绑定的文件名取出来，放到 request 里，供 Controller 校验
                 if (parts.length > 2) {
                     request.setAttribute("ticketFileName", parts[2]);
                 }
                 
                 return true;
+            } else {
+                log.warn("🚫 试图使用无效或已过期的 Ticket 访问接口: {}", request.getRequestURI());
             }
         }
         

@@ -3,21 +3,27 @@ package com.lab.labsystem.entity;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import jakarta.validation.constraints.NotBlank; // 🛑 新增
 import lombok.Data;
 
 @Data
 @TableName("exp_course")
 public class ExpCourse {
     @TableId("course_no")
-    private String courseNo; // 课程号
-    private String courseName; // 课程名
-    private Double credit; // 学分
-    private Integer hours; // 学时
-    private String semester; // 学期
+    private String courseNo; 
+
+    @NotBlank(message = "课程名不能为空！")
+    private String courseName; 
+
+    private Double credit; 
+    private Integer hours; 
+
+    @NotBlank(message = "开课学期不能为空！")
+    private String semester; 
+
     @TableLogic
     private Integer deleted;
 
-    // 手动防呆
     public String getCourseNo() { return courseNo; }
     public void setCourseNo(String courseNo) { this.courseNo = courseNo; }
     public String getCourseName() { return courseName; }

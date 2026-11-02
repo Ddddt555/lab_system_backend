@@ -3,6 +3,7 @@ package com.lab.labsystem.aspect;
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.Result;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j; // 🛑 新增
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -14,6 +15,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 
+@Slf4j // 🛑 开启日志
 @Aspect
 @Component
 public class RoleAuthAspect {
@@ -44,8 +46,8 @@ public class RoleAuthAspect {
         if (requireRole != null) {
             boolean hasPermission = Arrays.asList(requireRole.value()).contains(currentRole);
             if (!hasPermission) {
-                System.err.println("⚠️ 拦截越权访问: 用户角色=" + currentRole + ", 尝试访问=" + request.getRequestURI());
-                // 🛑【核心修复】统一提示语，包含“无权”以匹配测试断言
+                // 🛑 将 System.err 替换为 log.warn
+                log.warn("🚫 拦截越权访问: 用户角色={}, 尝试访问={}", currentRole, request.getRequestURI());
                 return Result.error("非法操作：您无权执行此操作！");
             }
         }

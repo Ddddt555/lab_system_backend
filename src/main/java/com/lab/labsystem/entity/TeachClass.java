@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.FieldFill;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import java.time.LocalDateTime;
 
@@ -15,26 +16,27 @@ public class TeachClass {
     @TableId("class_no")
     private String classNo;
     
+    @NotBlank(message = "所属课程不能为空！")
     private String courseNo;
     
+    @NotBlank(message = "授课教师不能为空！")
     private String workNo;
     
+    @NotBlank(message = "开课学期不能为空！")
     private String semester;
 
     private Integer dailyWeight;
-
     private Integer reportWeight;
+    
     @TableLogic
     private Integer deleted;
 
-    // 🛑【新增字段】
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 
-    // ...原有的 get/set 保持不变...
     public String getClassNo() { return classNo; }
     public void setClassNo(String classNo) { this.classNo = classNo; }
     public String getCourseNo() { return courseNo; }
@@ -49,8 +51,6 @@ public class TeachClass {
     public void setReportWeight(Integer reportWeight) { this.reportWeight = reportWeight; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
-
-    // 🛑 新增字段的 Get/Set
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
     public LocalDateTime getUpdateTime() { return updateTime; }

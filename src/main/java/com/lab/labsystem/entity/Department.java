@@ -2,12 +2,15 @@ package com.lab.labsystem.entity;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 @Data
 @TableName("department")
 public class Department {
     @TableId("dept_no")
     private String deptNo;
+    @NotBlank(message = "院系名称不能为空！")
     private String deptName;
     
     @TableLogic
