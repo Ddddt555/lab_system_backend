@@ -1,0 +1,114 @@
+services:
+  # ================= 1. MySQL 数据库 =================
+  mysql:
+    image: mysql:8.0
+    container_name: labsystem-mysql-prod
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: lab_management
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./db_structure.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - lab-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ================= 2. Redis 缓存 =================
+  redis:
+    image: redis:7.2-alpine
+    container_name: labsystem-redis-prod
+    restart: always
+    volumes:
+      - redis-data:/data
+    networks:
+      - lab-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ================= 3. MinIO 对象存储 =================
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    container_name: labsystem-minio-prod
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - lab-net
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ================= 4. Spring Boot 后端 =================
+  backend:
+    build: .
+    container_name: labsystem-backend-prod
+    restart: always
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USERNAME=root
+      - DB_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost}
+      - CPOLAR_COMPATIBLE=false
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - lab-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ================= 5. Nginx 前端 =================
+  frontend:
+    # 🛑 修正路径：退两级目录找到前端代码进行构建
+    build: ../../lab-system-frontend
+    container_name: labsystem-frontend-prod
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - lab-net
+
+volumes:
+  mysql-data:
+  redis-data:
+  minio-data:
+
+networks:
+  lab-net:
+    driver: bridge

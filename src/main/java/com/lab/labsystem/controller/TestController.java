@@ -20,6 +20,7 @@ public class TestController {
         // 它被故意放在 /api 前缀之外，所以不会被 JwtInterceptor 拦截。
         // 只能用于开发者本地测试 Bcrypt 加密结果。
         // 切勿在任何公网环境（如 cpolar 演示）中通过浏览器直接访问此路径！
+    	
         return new BCryptPasswordEncoder().encode("123456");
     }
 }

@@ -372,7 +372,7 @@ CREATE TABLE `sys_log` (
   `error_msg` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '错误信息(如果失败)',
   PRIMARY KEY (`id`),
   KEY `idx_create_time` (`create_time`)
-) ENGINE=InnoDB AUTO_INCREMENT=316 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=327 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -500,4 +500,4 @@ CREATE TABLE `waitlist_record` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-11-02  9:56:46
+-- Dump completed on 2026-11-02 16:37:06
