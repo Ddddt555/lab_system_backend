@@ -24,7 +24,13 @@ public class WaitlistRecord {
     private String studentNo;
     private LocalDateTime createTime;
 
-    // 手动补全 Get/Set 防止 Lombok 抽风（与项目现有风格一致）
+    // 🛑【新增字段】排队状态：WAITING-排队中, BOOKED-已补位成功
+    private String status;
+    
+    // 🛑【新增字段】更新时间
+    private LocalDateTime updateTime;
+
+    // 手动补全 Get/Set 防止 Lombok 抽风
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getSessionNo() { return sessionNo; }
@@ -33,4 +39,9 @@ public class WaitlistRecord {
     public void setStudentNo(String studentNo) { this.studentNo = studentNo; }
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public LocalDateTime getUpdateTime() { return updateTime; }
+    public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
 }

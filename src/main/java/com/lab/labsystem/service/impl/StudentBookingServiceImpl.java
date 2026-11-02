@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class StudentBookingServiceImpl implements StudentBookingService {
@@ -34,8 +35,18 @@ public class StudentBookingServiceImpl implements StudentBookingService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String bookSession(String studentNo, String sessionNo) {
-        // 把核心预约逻辑抽成一个私有方法，方便候补自动补位时复用
-        return doBookSession(studentNo, sessionNo, false);
+        // 🛑【核心修复】增加 Redis 幂等锁，防止用户狂点按钮导致并发超卖
+        String lockKey = "lock:book:" + studentNo + ":" + sessionNo;
+        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, "1", 5, TimeUnit.SECONDS);
+        if (!Boolean.TRUE.equals(locked)) {
+            throw new RuntimeException("您正在预约中，请勿频繁点击！");
+        }
+
+        try {
+            return doBookSession(studentNo, sessionNo, false);
+        } finally {
+            stringRedisTemplate.delete(lockKey);
+        }
     }
 
     /**
@@ -93,11 +104,9 @@ public class StudentBookingServiceImpl implements StudentBookingService {
                 "{\"type\":\"SEAT_UPDATE\",\"sessionNo\":\"" + sessionNo + "\",\"seats\":" + updatedSession.getRemainingSeats() + "}");
         }
 
-        // 如果这次预约是候补自动补位触发的，点对点通知该学生
         if (isWaitlistAutoBook) {
             int sent = GlobalWebSocket.sendToUser(studentNo,
                 "{\"type\":\"WAITLIST_SUCCESS\",\"message\":\"您候补的实验场次已成功为您预约！\"}");
-            // sent == 0 表示学生当前不在线，消息未送达。
             if (sent == 0) {
                 System.err.println("[候补通知] 学生 " + studentNo + " 当前不在线，WAITLIST_SUCCESS 未推送");
             }
@@ -107,6 +116,7 @@ public class StudentBookingServiceImpl implements StudentBookingService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public String joinWaitlist(String studentNo, String sessionNo) {
         ExpSession session = sessionMapper.selectById(sessionNo);
         if (session == null) throw new RuntimeException("场次不存在！");
@@ -115,34 +125,37 @@ public class StudentBookingServiceImpl implements StudentBookingService {
             throw new RuntimeException("当前场次还有余量，无需排队，请直接预约！");
         }
 
-        // 1. 检查是否已经预约了该场次
         Long booked = bookingMapper.selectCount(new QueryWrapper<StudentBooking>()
                 .eq("student_no", studentNo).eq("session_no", sessionNo).eq("status", 1));
         if (booked > 0) throw new RuntimeException("您已预约该场次，无需排队！");
 
-        // 2. 检查是否已经在候补队列中 (用 Redis Set 防重复)
         String userKey = WAITLIST_USER_PREFIX + sessionNo + ":" + studentNo;
         if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(userKey))) {
             throw new RuntimeException("您已经在候补队列中，请耐心等待！");
         }
 
-        // 3. MySQL 层兜底清理
+        // 1. 清理历史废弃记录
         waitlistRecordMapper.delete(new QueryWrapper<WaitlistRecord>()
                 .eq("session_no", sessionNo).eq("student_no", studentNo));
 
-        // 4. 写入 MySQL 记录
+        // 2. 🛑【核心修复】先写入 MySQL，状态设为 WAITING
         WaitlistRecord record = new WaitlistRecord();
         record.setSessionNo(sessionNo);
         record.setStudentNo(studentNo);
         record.setCreateTime(LocalDateTime.now());
+        record.setStatus("WAITING"); // 排队中
         waitlistRecordMapper.insert(record);
 
-        // 5. 写入 Redis 队列 (右边进，左边出)
-        String queueKey = WAITLIST_QUEUE_PREFIX + sessionNo;
-        stringRedisTemplate.opsForList().rightPush(queueKey, studentNo);
-        
-        // 6. 设置防重复标记
-        stringRedisTemplate.opsForValue().set(userKey, "1");
+        // 3. 写入 Redis 队列 (右边进，左边出)
+        try {
+            String queueKey = WAITLIST_QUEUE_PREFIX + sessionNo;
+            stringRedisTemplate.opsForList().rightPush(queueKey, studentNo);
+            // 4. 设置防重复标记
+            stringRedisTemplate.opsForValue().set(userKey, "1");
+        } catch (Exception e) {
+            // 🛑【核心修复】如果 Redis 写入失败，抛出异常触发 MySQL 事务回滚，保证一致性
+            throw new RuntimeException("排队人数过多，系统繁忙，请稍后再试！", e);
+        }
 
         return "已成功加入候补队列，一旦有人退课，系统将为您自动预约！";
     }
@@ -167,21 +180,19 @@ public class StudentBookingServiceImpl implements StudentBookingService {
         bookingMapper.deleteById(bookingNo);
         
         if (session != null) {
-            // ⚠️ 步骤 5：核心修改，改为数据库原子自增，且防止余量超过总容量
-        	UpdateWrapper<ExpSession> updateWrapper = new UpdateWrapper<>();
-        	updateWrapper.eq("session_no", session.getSessionNo())
-        	             .apply("remaining_seats < capacity") // ✅ 用 apply 直接写 SQL 条件
-        	             .setSql("remaining_seats = remaining_seats + 1");
-        	sessionMapper.update(null, updateWrapper);
-            // 重新查询最新的场次信息，用于 WebSocket 广播
+            UpdateWrapper<ExpSession> updateWrapper = new UpdateWrapper<>();
+            updateWrapper.eq("session_no", session.getSessionNo())
+                        .apply("remaining_seats < capacity")
+                        .setSql("remaining_seats = remaining_seats + 1");
+            sessionMapper.update(null, updateWrapper);
+
             ExpSession updatedSession = sessionMapper.selectById(session.getSessionNo());
             if (updatedSession != null) {
-                // ⚠️ 广播最新的余量
                 GlobalWebSocket.broadcastToRole("all", 
                     "{\"type\":\"SEAT_UPDATE\",\"sessionNo\":\"" + updatedSession.getSessionNo() + "\",\"seats\":" + updatedSession.getRemainingSeats() + "}");
             }
 
-            // ⚠️ 核心：触发候补补位
+            // 触发候补补位
             handleWaitlist(session.getSessionNo());
         }
         return "取消预约成功！";
@@ -193,30 +204,29 @@ public class StudentBookingServiceImpl implements StudentBookingService {
     private void handleWaitlist(String sessionNo) {
         String queueKey = WAITLIST_QUEUE_PREFIX + sessionNo;
         
-        // 循环取人（防止队列里有人因为时间冲突等原因补位失败）
         while (true) {
-            // 从左边弹出一个学生
             String nextStudentNo = stringRedisTemplate.opsForList().leftPop(queueKey);
             if (nextStudentNo == null) {
-                break; // 没人排队了，结束
+                break; 
             }
 
-            // 删除该学生的防重复标记
             String userKey = WAITLIST_USER_PREFIX + sessionNo + ":" + nextStudentNo;
             stringRedisTemplate.delete(userKey);
 
             try {
-                // 尝试帮他预约
                 doBookSession(nextStudentNo, sessionNo, true);
-                // 清理 MySQL 里的候补记录 (由于去掉了 @TableLogic，现在会自动物理删除)
-                waitlistRecordMapper.delete(new QueryWrapper<WaitlistRecord>()
-                        .eq("session_no", sessionNo).eq("student_no", nextStudentNo));
                 
-                // 补位成功，直接退出循环，因为余量又变成 0 了
+                // 🛑【核心修复】补位成功后，更新 MySQL 里的状态为 BOOKED，方便核对
+                UpdateWrapper<WaitlistRecord> updateWrapper = new UpdateWrapper<>();
+                updateWrapper.eq("session_no", sessionNo)
+                             .eq("student_no", nextStudentNo)
+                             .set("status", "BOOKED");
+                waitlistRecordMapper.update(null, updateWrapper);
+                
                 break; 
             } catch (Exception e) {
-                // 补位失败（比如他此时已经约了别的时间冲突的课），跳过这个人，循环继续找下一个
                 System.err.println("候补自动预约失败: " + nextStudentNo + "，原因: " + e.getMessage());
+                // 如果失败，可以考虑更新 MySQL 状态为 FAILED，或者直接跳过
             }
         }
     }

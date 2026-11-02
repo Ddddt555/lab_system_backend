@@ -37,7 +37,7 @@ public class LoginController {
 
     @Autowired private StudentMapper studentMapper;
     @Autowired private TeacherMapper teacherMapper;
-    @Autowired private SysAdminMapper sysAdminMapper; // 🛑 新增：用于查管理员信息
+    @Autowired private SysAdminMapper sysAdminMapper;
     @Autowired private AdminService adminService;
     @Autowired private BCryptPasswordEncoder passwordEncoder;
     @Autowired private SysLogMapper logMapper;
@@ -48,14 +48,29 @@ public class LoginController {
     private boolean testLoginEnabled;
 
     // ⚠️ 防爆破配置
-    private static final int MAX_FAIL_COUNT = 5; // 最大允许失败次数
-    private static final String LOGIN_FAIL_PREFIX = "login:fail:"; // Redis 前缀
+    private static final int MAX_FAIL_COUNT = 5;
+    private static final String LOGIN_FAIL_PREFIX = "login:fail:";
 
-    private void saveLoginLog(String operator, String action) {
+    // 🛑【核心修复】增强登录日志记录，支持 IP、URI、请求方法等
+    private void saveLoginLog(String operator, String action, HttpServletRequest request) {
         SysLog log = new SysLog();
         log.setOperator(operator);
         log.setAction(action);
         log.setCreateTime(LocalDateTime.now());
+        
+        // 自动判断成功还是失败
+        log.setSuccess(action.contains("成功") ? 1 : 0);
+        
+        if (request != null) {
+            String ip = request.getHeader("X-Forwarded-For");
+            if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+                ip = request.getRemoteAddr();
+            }
+            log.setIp(ip);
+            log.setMethod(request.getMethod());
+            log.setUri(request.getRequestURI());
+            log.setCostMs(0L);
+        }
         logMapper.insert(log);
     }
 
@@ -74,11 +89,9 @@ public class LoginController {
         Long count = stringRedisTemplate.opsForValue().increment(key);
         if (count != null) {
             if (count == 1) {
-                // 第一次失败，设置 10 分钟过期时间
                 stringRedisTemplate.expire(key, Duration.ofMinutes(10));
             }
             if (count >= MAX_FAIL_COUNT) {
-                // 达到 5 次，虽然上面的 check 会在下次拦截，但这次也可以提示
                 throw new RuntimeException("密码错误次数过多，账号已被锁定 10 分钟，请稍后再试！");
             }
         }
@@ -101,9 +114,9 @@ public class LoginController {
             @RequestParam String username,
             @RequestParam String password,
             @RequestParam String captchaKey,
-            @RequestParam String captchaCode) {
+            @RequestParam String captchaCode,
+            HttpServletRequest request) { // 🛑 新增 request
 
-        // 1. 检查账号是否被锁定
         try {
             checkAccountLocked("student", username);
         } catch (RuntimeException e) {
@@ -116,12 +129,12 @@ public class LoginController {
 
         Student student = studentMapper.selectOne(new QueryWrapper<Student>().eq("student_no", username));
         if (student == null) {
-            saveLoginLog("学生-" + username, "登录失败：学号不存在");
+            saveLoginLog("学生-" + username, "登录失败：学号不存在", request);
             return Result.error("学号不存在！");
         }
 
         if (!passwordEncoder.matches(password, student.getPassword())) {
-            saveLoginLog("学生-" + username, "登录失败：密码错误");
+            saveLoginLog("学生-" + username, "登录失败：密码错误", request);
             try {
                 recordLoginFail("student", username);
             } catch (RuntimeException e) {
@@ -130,14 +143,12 @@ public class LoginController {
             return Result.error("密码错误！");
         }
 
-        // 登录成功，清除失败记录
         clearLoginFail("student", username);
-        saveLoginLog("学生-" + username, "登录成功");
+        saveLoginLog("学生-" + username, "登录成功", request);
 
         String token = JwtUtil.generateToken(student.getStudentNo(), "student");
         Map<String, Object> data = new HashMap<>();
         
-        // 🛑【核心修复】封装 VO，设置是否需要强制改密
         LoginUserVO userVO = new LoginUserVO(student.getStudentNo(), student.getName(), "student");
         userVO.setMustChangePassword(student.getMustChangePassword() != null && student.getMustChangePassword() == 1);
         
@@ -153,7 +164,8 @@ public class LoginController {
             @RequestParam String username,
             @RequestParam String password,
             @RequestParam String captchaKey,
-            @RequestParam String captchaCode) {
+            @RequestParam String captchaCode,
+            HttpServletRequest request) { // 🛑 新增 request
 
         try {
             checkAccountLocked("teacher", username);
@@ -167,12 +179,12 @@ public class LoginController {
 
         Teacher teacher = teacherMapper.selectOne(new QueryWrapper<Teacher>().eq("work_no", username));
         if (teacher == null) {
-            saveLoginLog("教师-" + username, "登录失败：工号不存在");
+            saveLoginLog("教师-" + username, "登录失败：工号不存在", request);
             return Result.error("工号不存在！");
         }
 
         if (!passwordEncoder.matches(password, teacher.getPassword())) {
-            saveLoginLog("教师-" + username, "登录失败：密码错误");
+            saveLoginLog("教师-" + username, "登录失败：密码错误", request);
             try {
                 recordLoginFail("teacher", username);
             } catch (RuntimeException e) {
@@ -182,12 +194,11 @@ public class LoginController {
         }
 
         clearLoginFail("teacher", username);
-        saveLoginLog("教师-" + username, "登录成功");
+        saveLoginLog("教师-" + username, "登录成功", request);
 
         String token = JwtUtil.generateToken(teacher.getWorkNo(), "teacher");
         Map<String, Object> data = new HashMap<>();
         
-        // 🛑【核心修复】封装 VO，设置是否需要强制改密
         LoginUserVO userVO = new LoginUserVO(teacher.getWorkNo(), teacher.getName(), "teacher");
         userVO.setMustChangePassword(teacher.getMustChangePassword() != null && teacher.getMustChangePassword() == 1);
         
@@ -203,7 +214,8 @@ public class LoginController {
             @RequestParam String username,
             @RequestParam String password,
             @RequestParam String captchaKey,
-            @RequestParam String captchaCode) {
+            @RequestParam String captchaCode,
+            HttpServletRequest request) { // 🛑 新增 request
 
         try {
             checkAccountLocked("admin", username);
@@ -217,12 +229,11 @@ public class LoginController {
 
         if (adminService.checkLogin(username, password)) {
             clearLoginFail("admin", username);
-            saveLoginLog("管理员-" + username, "登录成功");
+            saveLoginLog("管理员-" + username, "登录成功", request);
 
             String token = JwtUtil.generateToken(username, "admin");
             Map<String, Object> data = new HashMap<>();
             
-            // 🛑【核心修复】查询管理员信息，设置是否需要强制改密
             SysAdmin admin = sysAdminMapper.selectOne(new QueryWrapper<SysAdmin>().eq("username", username));
             LoginUserVO userVO = new LoginUserVO(username, "超级管理员", "admin");
             userVO.setMustChangePassword(admin != null && admin.getMustChangePassword() != null && admin.getMustChangePassword() == 1);
@@ -233,7 +244,7 @@ public class LoginController {
             return Result.success(data);
         }
 
-        saveLoginLog("管理员-" + username, "登录失败：账号或密码错误");
+        saveLoginLog("管理员-" + username, "登录失败：账号或密码错误", request);
         try {
             recordLoginFail("admin", username);
         } catch (RuntimeException e) {
@@ -246,17 +257,14 @@ public class LoginController {
     @PostMapping("/login/test")
     public Result<Object> testLogin(
             @RequestParam String username,
-            @RequestParam String role) {
+            @RequestParam String role,
+            HttpServletRequest request) { // 🛑 新增 request
         
-        // =========================================================
-        // 🛑【核心修复】在生产环境下，直接抛出 404 异常（伪装成接口不存在）
-        // =========================================================
         String activeProfile = System.getProperty("spring.profiles.active");
         if (activeProfile == null) {
             activeProfile = System.getenv("SPRING_PROFILES_ACTIVE");
         }
         if ("prod".equals(activeProfile)) {
-            // 🛑 伪装成标准的 404 Not Found 异常
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.NOT_FOUND, "Not Found");
         }
@@ -274,7 +282,7 @@ public class LoginController {
         data.put("user", new LoginUserVO(username, "测试用户-" + username, role));
         data.put("token", token);
 
-        saveLoginLog("测试登录-" + username, "使用免验证码通道");
+        saveLoginLog("测试登录-" + username, "使用免验证码通道", request);
         return Result.success(data);
     }
 
