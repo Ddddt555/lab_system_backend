@@ -269,4 +269,81 @@ public class SecurityHardeningTest {
         headers.setContentType(MediaType.APPLICATION_JSON);
         return headers;
     }
+    
+    /**
+     * 【对应修复项】任务 2.1：预约并发防超卖与防连点
+     * 验证点：
+     * 1. 强行把余量改为 1。
+     * 2. 用 10 个线程并发去抢。
+     * 3. 无论多少人抢，只能成功 1 次，数据库余量必须变成 0，不能出现负数或超卖。
+     */
+    @Test
+    @Order(6)
+    @DisplayName("10. 测试预约并发防超卖")
+    void testConcurrentBookSession() throws InterruptedException {
+        System.out.println("▶️ [用例5] 测试步骤：预约并发防超卖与防连点");
+
+        // 1. 从数据库找一个场次，并强行把余量改为 1
+        List<Map<String, Object>> sessions = jdbcTemplate.queryForList(
+                "SELECT session_no FROM exp_session WHERE deleted = 0 LIMIT 1"
+        );
+        if (sessions.isEmpty()) {
+            throw new RuntimeException("数据库里没有场次，请先创建一个场次！");
+        }
+        String testSessionNo = (String) sessions.get(0).get("session_no");
+        jdbcTemplate.update("UPDATE exp_session SET remaining_seats = 1, capacity = 1 WHERE session_no = ?", testSessionNo);
+        
+        // 清空之前可能产生的该场次预约记录
+        jdbcTemplate.update("DELETE FROM student_booking WHERE session_no = ?", testSessionNo);
+
+        // 2. 准备 10 个线程并发抢座
+        int threadCount = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch latch = new CountDownLatch(threadCount);
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger failCount = new AtomicInteger(0);
+
+        String url = "/api/student/book?sessionNo=" + testSessionNo;
+        HttpHeaders headers = getHeaders(studentToken);
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+
+        for (int i = 0; i < threadCount; i++) {
+            executor.submit(() -> {
+                try {
+                    ResponseEntity<Result> response = restTemplate.postForEntity(url, entity, Result.class);
+                    if (response.getBody() != null && response.getBody().getCode() == 200) {
+                        successCount.incrementAndGet();
+                    } else {
+                        failCount.incrementAndGet();
+                    }
+                } catch (Exception e) {
+                    failCount.incrementAndGet();
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await(5, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        System.out.println("  ✅ 10个并发请求执行完毕，成功: " + successCount.get() + " 次，失败(被拦截): " + failCount.get() + " 次");
+
+        // 3. 核心断言：必须只有 1 个人抢到，绝对不能超卖！
+        assertEquals(1, successCount.get(), "并发防超卖失效：成功次数不是 1 次！");
+        
+        // 4. 数据库校验：余量必须刚好等于 0
+        Integer remainingSeats = jdbcTemplate.queryForObject(
+                "SELECT remaining_seats FROM exp_session WHERE session_no = ?",
+                Integer.class, testSessionNo);
+        assertEquals(0, remainingSeats, "并发防超卖失效：数据库剩余机位变成了负数或不为0！");
+
+        // 5. 数据库校验：该场次只能有 1 条预约记录
+        Integer bookingCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM student_booking WHERE session_no = ?",
+                Integer.class, testSessionNo);
+        assertEquals(1, bookingCount, "并发防超卖失效：数据库出现了多条预约记录！");
+
+        System.out.println("  ✅ 数据库校验通过，未发生超卖，且只有1条预约记录\n");
+    }
 }

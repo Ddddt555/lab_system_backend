@@ -73,6 +73,8 @@ public class ReportController {
     @Autowired private TeacherScoreService teacherScoreService;
     
     @Autowired private StringRedisTemplate stringRedisTemplate;
+    
+    @Autowired private org.redisson.api.RedissonClient redissonClient;
 
     @Value("${app.cpolar-compatible:false}")
     private boolean isCpollarCompatible;
@@ -109,33 +111,43 @@ public class ReportController {
         ExpProject project = projectMapper.selectById(projectNo);
         if (project == null) return Result.error("实验项目不存在！");
 
-        String lockKey = "lock:report:upload:" + studentNo + ":" + projectNo;
-        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, "1", 5, TimeUnit.SECONDS);
-        if (!Boolean.TRUE.equals(locked)) {
-            return Result.error("您有报告正在上传中，请勿频繁点击！");
-        }
-
         String newFileName = UUID.randomUUID().toString().replace("-", "") + suffix;
         boolean minioUploadSuccess = false;
 
+        // 🛑【核心修复】使用 Redisson RLock 替换普通的 Redis setIfAbsent
+        String lockKey = "lock:report:upload:" + studentNo + ":" + projectNo;
+        org.redisson.api.RLock lock = redissonClient.getLock(lockKey);
+        boolean isLocked = false;
+
         try {
+            // 尝试加锁：最多等 3 秒，leaseTime 传 -1 代表开启看门狗自动续期
+            isLocked = lock.tryLock(3, -1, TimeUnit.SECONDS);
+            if (!isLocked) {
+                return Result.error("您有报告正在上传中，请勿频繁点击！");
+            }
+
+            // 1. 先上传文件到 MinIO
             minioService.upload(file, newFileName);
             minioUploadSuccess = true;
 
+            // 2. 更新旧版本状态
             UpdateWrapper<ExpReport> updateWrapper = new UpdateWrapper<>();
             updateWrapper.eq("student_no", studentNo)
                          .eq("project_no", projectNo)
                          .set("is_latest", 0);
             reportMapper.update(null, updateWrapper);
             
+            // 3. 清理被逻辑删除的历史废弃记录，防止唯一键冲突
             reportMapper.deleteOldSoftDeletedReports(studentNo, projectNo);
 
+            // 4. 查最大版本号
             QueryWrapper<ExpReport> qw = new QueryWrapper<>();
             qw.eq("student_no", studentNo).eq("project_no", projectNo)
               .orderByDesc("version").last("limit 1");
             ExpReport lastReport = reportMapper.selectOne(qw);
             int newVersion = (lastReport != null) ? lastReport.getVersion() + 1 : 1;
 
+            // 5. 插入新版本记录
             ExpReport report = new ExpReport();
             report.setReportNo("R" + UUID.randomUUID().toString().substring(0, 8));
             report.setStudentNo(studentNo);
@@ -148,6 +160,9 @@ public class ReportController {
 
             return Result.success("报告上传成功，当前为第 " + newVersion + " 版");
 
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Result.error("系统繁忙，请稍后重试！");
         } catch (DuplicateKeyException e) {
             System.err.println("版本号冲突，并发插入被唯一键拦截: " + newFileName);
             if (minioUploadSuccess) minioService.remove(newFileName);
@@ -157,9 +172,12 @@ public class ReportController {
             if (minioUploadSuccess) minioService.remove(newFileName);
             throw new RuntimeException("数据库保存失败，文件已清理，请重试！", e);
         } finally {
-            stringRedisTemplate.delete(lockKey);
+            // 🛑【核心修复】判断当前线程是否持有锁，持有才释放，防止释放别人的锁
+            if (isLocked && lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
         }
-    }
+    } // 🛑【核心修复】补上漏掉的方法结束大括号
 
     // ========== 2. 动态获取 URL (双轨制) ==========
     @Operation(summary = "获取下载链接")

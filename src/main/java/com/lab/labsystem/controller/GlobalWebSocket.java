@@ -1,8 +1,11 @@
 package com.lab.labsystem.controller;
 
+import com.lab.labsystem.config.RedisPubSubConfig;
 import jakarta.websocket.*;
 import jakarta.websocket.server.ServerEndpoint;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.connection.Message;
+import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -14,7 +17,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
 
 @Component
 @ServerEndpoint("/ws/global")
-public class GlobalWebSocket {
+public class GlobalWebSocket implements MessageListener {
 
     private static StringRedisTemplate stringRedisTemplate;
 
@@ -23,13 +26,9 @@ public class GlobalWebSocket {
         GlobalWebSocket.stringRedisTemplate = template;
     }
 
-    // 全体在线连接
     private static final CopyOnWriteArraySet<Session> allSessions = new CopyOnWriteArraySet<>();
-    // 角色房间
     private static final ConcurrentHashMap<String, CopyOnWriteArraySet<Session>> roleRooms = new ConcurrentHashMap<>();
-    // ⚠️ 新增：账号 -> 连接集合（同一账号可多端登录，如 PC + 手机）
     private static final ConcurrentHashMap<String, CopyOnWriteArraySet<Session>> userRooms = new ConcurrentHashMap<>();
-    // 心跳活跃时间
     private static final Map<Session, Long> activeTimeMap = new ConcurrentHashMap<>();
 
     @OnOpen
@@ -41,7 +40,6 @@ public class GlobalWebSocket {
         if (ticket == null) { closeSession(session, "缺少Ticket"); return; }
 
         String redisKey = "ws:ticket:" + ticket;
-        // LoginController 存的是 "userNo:role"
         String userInfo = stringRedisTemplate.opsForValue().get(redisKey);
 
         if (userInfo == null) { closeSession(session, "票据无效"); return; }
@@ -55,11 +53,10 @@ public class GlobalWebSocket {
 
         allSessions.add(session);
         roleRooms.computeIfAbsent(role, k -> new CopyOnWriteArraySet<>()).add(session);
-        // ⚠️ 新增：登记账号到连接
         userRooms.computeIfAbsent(userNo, k -> new CopyOnWriteArraySet<>()).add(session);
         activeTimeMap.put(session, System.currentTimeMillis());
 
-        System.out.println("📢 [全局WS] 用户上线: " + userNo + " (角色: " + role + ")，当前总连接: " + allSessions.size());
+        System.out.println("📢 [全局WS] 用户上线: " + userNo + " (角色: " + role + ")");
     }
 
     @OnMessage
@@ -74,7 +71,6 @@ public class GlobalWebSocket {
     public void onClose(Session session) {
         allSessions.remove(session);
         roleRooms.values().forEach(set -> set.remove(session));
-        // ⚠️ 新增：从 userRooms 中移除，并在 Set 空时移除 key
         userRooms.entrySet().removeIf(entry -> {
             entry.getValue().remove(session);
             return entry.getValue().isEmpty();
@@ -91,7 +87,51 @@ public class GlobalWebSocket {
         try { session.close(new CloseReason(CloseReason.CloseCodes.CANNOT_ACCEPT, reason)); } catch (IOException ignored) {}
     }
 
+    // =========================================================
+    // 🛑【核心改造】发往 Redis 频道
+    // =========================================================
     public static void broadcastToRole(String role, String message) {
+        if (stringRedisTemplate != null) {
+            // 格式: ROLE:role:message
+            stringRedisTemplate.convertAndSend(RedisPubSubConfig.GLOBAL_CHANNEL, "ROLE:" + role + ":" + message);
+        }
+    }
+
+    public static int sendToUser(String userNo, String message) {
+        if (stringRedisTemplate != null) {
+            // 格式: USER:userNo:message
+            stringRedisTemplate.convertAndSend(RedisPubSubConfig.GLOBAL_CHANNEL, "USER:" + userNo + ":" + message);
+            return 1; // 统一返回 1（已投递到 Redis），让上层逻辑不报错
+        }
+        return 0;
+    }
+
+    // =========================================================
+    // 🛑【核心改造】监听 Redis 消息，推给本地用户
+    // =========================================================
+    @Override
+    public void onMessage(Message message, byte[] pattern) {
+        try {
+            String msgStr = new String(message.getBody());
+            if (msgStr.startsWith("ROLE:")) {
+                String[] parts = msgStr.split(":", 3);
+                if (parts.length < 3) return;
+                String role = parts[1];
+                String actualMsg = parts[2];
+                doBroadcastToRoleLocal(role, actualMsg);
+            } else if (msgStr.startsWith("USER:")) {
+                String[] parts = msgStr.split(":", 3);
+                if (parts.length < 3) return;
+                String userNo = parts[1];
+                String actualMsg = parts[2];
+                doSendToUserLocal(userNo, actualMsg);
+            }
+        } catch (Exception e) {
+            System.err.println("❌ [全局WS] 处理 Redis 消息失败: " + e.getMessage());
+        }
+    }
+
+    private static void doBroadcastToRoleLocal(String role, String message) {
         if ("all".equals(role)) {
             for (Session session : allSessions) {
                 try { session.getBasicRemote().sendText(message); } catch (IOException ignored) {}
@@ -106,29 +146,14 @@ public class GlobalWebSocket {
         }
     }
 
-    /**
-     * ⚠️ 新增：点对点发送给指定账号（支持多端同时收到）
-     * @return 实际发送成功的连接数；0 表示该账号当前不在线
-     */
-    public static int sendToUser(String userNo, String message) {
-        if (userNo == null || message == null) return 0;
+    private static void doSendToUserLocal(String userNo, String message) {
         CopyOnWriteArraySet<Session> sessions = userRooms.get(userNo);
-        if (sessions == null || sessions.isEmpty()) return 0;
-
-        int sent = 0;
-        for (Session session : sessions) {
-            if (!session.isOpen()) {
-                sessions.remove(session);
-                continue;
-            }
-            try {
-                session.getBasicRemote().sendText(message);
-                sent++;
-            } catch (IOException e) {
-                sessions.remove(session);
+        if (sessions != null && !sessions.isEmpty()) {
+            for (Session session : sessions) {
+                if (!session.isOpen()) continue;
+                try { session.getBasicRemote().sendText(message); } catch (IOException ignored) {}
             }
         }
-        return sent;
     }
 
     @Scheduled(fixedRate = 30000)
