@@ -11,41 +11,61 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.Date;
-import java.util.UUID; // ⚠️ 新增导入
+import java.util.UUID;
 
 @Component
 public class JwtUtil {
 
-    // 保留静态字段与静态方法，调用方（JwtInterceptor / LoginController）零改动
     private static String secret;
-    private static long expireMillis;
+    private static long accessExpireMillis;
+    private static long refreshExpireMillis;
     private static Key key;
 
     @Value("${jwt.secret}")
-    public void setSecret(String secret) {
-        JwtUtil.secret = secret;
+    public void setSecret(String secret) { JwtUtil.secret = secret; }
+
+    // 🛑 访问令牌（Access Token）过期时间，默认 30 分钟
+    @Value("${jwt.access-expire-minutes:30}")
+    public void setAccessExpireMinutes(long minutes) {
+        JwtUtil.accessExpireMillis = minutes * 60 * 1000;
     }
 
-    @Value("${jwt.expire-hours:24}")
-    public void setExpireHours(long hours) {
-        JwtUtil.expireMillis = hours * 60 * 60 * 1000;
+    // 🛑 刷新令牌（Refresh Token）过期时间，默认 7 天
+    @Value("${jwt.refresh-expire-days:7}")
+    public void setRefreshExpireDays(long days) {
+        JwtUtil.refreshExpireMillis = days * 24 * 60 * 60 * 1000;
     }
 
     @PostConstruct
     public void init() {
         if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
-            throw new IllegalStateException("jwt.secret 长度必须 >= 32 字节（HS256 要求）");
+            throw new IllegalStateException("jwt.secret 长度必须 >= 32 字节");
         }
         key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    public static String generateToken(String username, String role) {
+    // 签发短效 Access Token
+    public static String generateAccessToken(String username, String role) {
         return Jwts.builder()
-                .setId(UUID.randomUUID().toString()) // ⚠️ 核心新增：给每个 Token 发一个唯一ID (jti)
+                .setId(UUID.randomUUID().toString())
                 .setSubject(username)
                 .claim("role", role)
+                .claim("type", "access") // 标识类型
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expireMillis))
+                .setExpiration(new Date(System.currentTimeMillis() + accessExpireMillis))
+                .signWith(key, SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    // 签发长效 Refresh Token
+    public static String generateRefreshToken(String username, String role) {
+        return Jwts.builder()
+                .setId(UUID.randomUUID().toString())
+                .setSubject(username)
+                .claim("role", role)
+                .claim("type", "refresh") // 标识类型
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + refreshExpireMillis))
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }

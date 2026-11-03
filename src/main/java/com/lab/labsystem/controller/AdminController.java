@@ -235,6 +235,8 @@ public class AdminController {
 
     @PostMapping("/update-password")
     public Result<String> updatePassword(@RequestParam String oldPassword, @RequestParam String newPassword) {
+    	 String errorMsg = com.lab.labsystem.common.PasswordValidator.validate(newPassword);
+         if (errorMsg != null) return Result.error(errorMsg);
         if (adminService.updatePassword(oldPassword, newPassword)) return Result.success("密码修改成功，请重新登录！");
         return Result.error("原密码错误！");
     }

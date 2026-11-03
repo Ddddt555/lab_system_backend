@@ -335,6 +335,8 @@ public class StudentController {
     @Operation(summary = "学生修改密码", description = "校验原密码后更新为新密码，修改成功后建议重新登录")
     @PostMapping("/update-password")
     public Result<String> updatePassword(HttpServletRequest request, @RequestParam String oldPwd, @RequestParam String newPwd) {
+    	String errorMsg = com.lab.labsystem.common.PasswordValidator.validate(newPwd);
+        if (errorMsg != null) return Result.error(errorMsg);
         String studentNo = (String) request.getAttribute("currentUserNo");
         com.lab.labsystem.entity.Student student = studentMapper.selectById(studentNo);
         if (student == null || !passwordEncoder.matches(oldPwd, student.getPassword())) {

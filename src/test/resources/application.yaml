@@ -1,10 +1,11 @@
 # 专门为 Maven 打包测试准备的配置，不污染本地环境
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/lab_management?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false
+    # 核心修复：测试库必须加 _test 后缀，严禁连主库
+    url: jdbc:mysql://localhost:3306/lab_management_test?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    # 🛑 改为环境变量占位符
-    password: ${DB_PASSWORD} 
+    # 改为环境变量占位符
+    password: ${DB_PASSWORD:***REMOVED_MYSQL_ROOT_PASSWORD***} 
   data:
     redis:
       host: localhost
@@ -16,9 +17,9 @@ jwt:
 
 minio:
   endpoint: http://127.0.0.1:9000
-  # 🛑 改为环境变量占位符
-  access-key: ${MINIO_ACCESS_KEY}
-  secret-key: ${MINIO_SECRET_KEY}
+  # 改为环境变量占位符
+  access-key: ${MINIO_ACCESS_KEY:labminio}
+  secret-key: ${MINIO_SECRET_KEY:***REMOVED_MINIO_ROOT_PASSWORD***}
   bucket-name: lab-files
 
 app:

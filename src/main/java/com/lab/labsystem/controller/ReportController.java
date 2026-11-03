@@ -36,17 +36,16 @@ import com.lab.labsystem.entity.ExpProject;
 import com.lab.labsystem.entity.ExpReport;
 import com.lab.labsystem.entity.Major;
 import com.lab.labsystem.entity.Student;
-import com.lab.labsystem.entity.StudentTeachClass;
-import com.lab.labsystem.entity.TeachClass;
+import com.lab.labsystem.entity.TeachClass; // 🛑【修复了这里】补充了 TeachClass 的导入
 import com.lab.labsystem.mapper.AdminClassMapper;
 import com.lab.labsystem.mapper.DepartmentMapper;
 import com.lab.labsystem.mapper.ExpProjectMapper;
 import com.lab.labsystem.mapper.ExpReportMapper;
 import com.lab.labsystem.mapper.MajorMapper;
 import com.lab.labsystem.mapper.StudentMapper;
-import com.lab.labsystem.mapper.StudentTeachClassMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.service.MinioService;
+import com.lab.labsystem.service.PermissionService;
 import com.lab.labsystem.service.TeacherScoreService;
 import com.lab.labsystem.vo.ReportVO;
 
@@ -67,10 +66,10 @@ public class ReportController {
     @Autowired private DepartmentMapper departmentMapper;
     @Autowired private ExpProjectMapper projectMapper;
     @Autowired private TeachClassMapper teachClassMapper;
-    @Autowired private StudentTeachClassMapper studentTeachClassMapper;
     
     @Autowired private MinioService minioService;
     @Autowired private TeacherScoreService teacherScoreService;
+    @Autowired private PermissionService permissionService; 
     
     @Autowired private StringRedisTemplate stringRedisTemplate;
     
@@ -114,40 +113,33 @@ public class ReportController {
         String newFileName = UUID.randomUUID().toString().replace("-", "") + suffix;
         boolean minioUploadSuccess = false;
 
-        // 🛑【核心修复】使用 Redisson RLock 替换普通的 Redis setIfAbsent
         String lockKey = "lock:report:upload:" + studentNo + ":" + projectNo;
         org.redisson.api.RLock lock = redissonClient.getLock(lockKey);
         boolean isLocked = false;
 
         try {
-            // 尝试加锁：最多等 3 秒，leaseTime 传 -1 代表开启看门狗自动续期
             isLocked = lock.tryLock(3, -1, TimeUnit.SECONDS);
             if (!isLocked) {
                 return Result.error("您有报告正在上传中，请勿频繁点击！");
             }
 
-            // 1. 先上传文件到 MinIO
             minioService.upload(file, newFileName);
             minioUploadSuccess = true;
 
-            // 2. 更新旧版本状态
             UpdateWrapper<ExpReport> updateWrapper = new UpdateWrapper<>();
             updateWrapper.eq("student_no", studentNo)
                          .eq("project_no", projectNo)
                          .set("is_latest", 0);
             reportMapper.update(null, updateWrapper);
             
-            // 3. 清理被逻辑删除的历史废弃记录，防止唯一键冲突
             reportMapper.deleteOldSoftDeletedReports(studentNo, projectNo);
 
-            // 4. 查最大版本号
             QueryWrapper<ExpReport> qw = new QueryWrapper<>();
             qw.eq("student_no", studentNo).eq("project_no", projectNo)
               .orderByDesc("version").last("limit 1");
             ExpReport lastReport = reportMapper.selectOne(qw);
             int newVersion = (lastReport != null) ? lastReport.getVersion() + 1 : 1;
 
-            // 5. 插入新版本记录
             ExpReport report = new ExpReport();
             report.setReportNo("R" + UUID.randomUUID().toString().substring(0, 8));
             report.setStudentNo(studentNo);
@@ -172,18 +164,18 @@ public class ReportController {
             if (minioUploadSuccess) minioService.remove(newFileName);
             throw new RuntimeException("数据库保存失败，文件已清理，请重试！", e);
         } finally {
-            // 🛑【核心修复】判断当前线程是否持有锁，持有才释放，防止释放别人的锁
             if (isLocked && lock.isHeldByCurrentThread()) {
                 lock.unlock();
             }
         }
-    } // 🛑【核心修复】补上漏掉的方法结束大括号
+    }
 
     // ========== 2. 动态获取 URL (双轨制) ==========
     @Operation(summary = "获取下载链接")
     @GetMapping("/download-url/{fileName}")
     public Result<String> getDownloadUrl(@PathVariable String fileName, HttpServletRequest request) {
-        if (!hasPermission(fileName, request)) return Result.error("没有权限！");
+        if (!permissionService.hasFilePermission(fileName, request)) return Result.error("没有权限！");
+        
         String baseUrl = request.getScheme() + "://" + request.getServerName() + 
                          (request.getServerPort() == 80 || request.getServerPort() == 443 ? "" : ":" + request.getServerPort());
         
@@ -194,7 +186,6 @@ public class ReportController {
             String ticket = UUID.randomUUID().toString().replace("-", "");
             String userNo = (String) request.getAttribute("currentUserNo");
             String role = (String) request.getAttribute("currentUserRole");
-            // 🛑【核心修复】将 fileName 一起绑定存入 Redis
             stringRedisTemplate.opsForValue().set("report:ticket:" + ticket, userNo + ":" + role + ":" + fileName, 30, TimeUnit.SECONDS);
             return Result.success(baseUrl + "/api/report/download/" + fileName + "?ticket=" + ticket);
         }
@@ -203,7 +194,8 @@ public class ReportController {
     @Operation(summary = "获取预览链接")
     @GetMapping("/preview-url/{fileName}")
     public Result<String> getPreviewUrl(@PathVariable String fileName, HttpServletRequest request) {
-        if (!hasPermission(fileName, request)) return Result.error("没有权限！");
+        if (!permissionService.hasFilePermission(fileName, request)) return Result.error("没有权限！");
+        
         String baseUrl = request.getScheme() + "://" + request.getServerName() + 
                          (request.getServerPort() == 80 || request.getServerPort() == 443 ? "" : ":" + request.getServerPort());
         
@@ -214,20 +206,9 @@ public class ReportController {
             String ticket = UUID.randomUUID().toString().replace("-", "");
             String userNo = (String) request.getAttribute("currentUserNo");
             String role = (String) request.getAttribute("currentUserRole");
-            // 🛑【核心修复】将 fileName 一起绑定存入 Redis
             stringRedisTemplate.opsForValue().set("report:ticket:" + ticket, userNo + ":" + role + ":" + fileName, 30, TimeUnit.SECONDS);
             return Result.success(baseUrl + "/api/report/preview/" + fileName + "?ticket=" + ticket);
         }
-    }
-
-    private boolean hasPermission(String fileName, HttpServletRequest request) {
-        ExpReport report = reportMapper.selectOne(new QueryWrapper<ExpReport>().eq("file_url", fileName));
-        if (report != null) return canAccessReport(request, report);
-        
-        ExpProject project = projectMapper.selectOne(new QueryWrapper<ExpProject>().eq("guide_file", fileName));
-        if (project != null) return canAccessGuide(request, project);
-        
-        return false;
     }
 
     // ========== 3. 后端内部代理获取文件流 ==========
@@ -242,7 +223,6 @@ public class ReportController {
     }
 
     private void streamFromMinio(String fileName, HttpServletResponse response, boolean inline, HttpServletRequest request) {
-        // 🛑【核心修复 1】校验：如果请求携带了 ticket，那么请求的文件名必须与 ticket 绑定的文件名一致！
         String ticketFileName = (String) request.getAttribute("ticketFileName");
         if (ticketFileName != null && !ticketFileName.equals(fileName)) {
             System.err.println("⚠️ 拦截非法越权：Ticket 绑定文件=" + ticketFileName + ", 尝试下载=" + fileName);
@@ -250,8 +230,7 @@ public class ReportController {
             return;
         }
 
-        // 🛑【核心修复 2】校验：如果没有走 ticket（比如直接传 token 的 cpolar 模式），必须查库校验当前用户对该文件是否有权限！
-        if (ticketFileName == null && !hasPermission(fileName, request)) {
+        if (ticketFileName == null && !permissionService.hasFilePermission(fileName, request)) {
             response.setStatus(403);
             return;
         }
@@ -270,42 +249,6 @@ public class ReportController {
             e.printStackTrace();
             response.setStatus(500);
         }
-    }
-
-    // ========== 4. 权限校验辅助方法 ==========
-    private boolean canAccessReport(HttpServletRequest request, ExpReport report) {
-        String role = (String) request.getAttribute("currentUserRole");
-        String userNo = (String) request.getAttribute("currentUserNo");
-        if (role == null || userNo == null) return false;
-
-        if ("admin".equals(role)) return true;
-        if ("student".equals(role)) return userNo.equals(report.getStudentNo());
-        if ("teacher".equals(role)) {
-            ExpProject p = projectMapper.selectById(report.getProjectNo());
-            if (p == null) return false;
-            TeachClass tc = teachClassMapper.selectById(p.getClassNo());
-            return tc != null && userNo.equals(tc.getWorkNo());
-        }
-        return false;
-    }
-
-    private boolean canAccessGuide(HttpServletRequest request, ExpProject project) {
-        String role = (String) request.getAttribute("currentUserRole");
-        String userNo = (String) request.getAttribute("currentUserNo");
-        if (role == null || userNo == null) return false;
-
-        if ("admin".equals(role)) return true;
-        if ("teacher".equals(role)) {
-            TeachClass tc = teachClassMapper.selectById(project.getClassNo());
-            return tc != null && userNo.equals(tc.getWorkNo());
-        }
-        if ("student".equals(role)) {
-            return studentTeachClassMapper.selectCount(
-                    new QueryWrapper<StudentTeachClass>()
-                            .eq("student_no", userNo)
-                            .eq("class_no", project.getClassNo())) > 0;
-        }
-        return false;
     }
 
     // ========== 5. 教师批阅 ==========

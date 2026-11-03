@@ -490,6 +490,8 @@ public class TeacherController {
     public Result<String> updatePassword(HttpServletRequest request,
                                          @RequestParam String oldPwd,
                                          @RequestParam String newPwd) {
+    	 String errorMsg = com.lab.labsystem.common.PasswordValidator.validate(newPwd);
+         if (errorMsg != null) return Result.error(errorMsg);
         String workNo = (String) request.getAttribute("currentUserNo");
         Teacher teacher = teacherMapper.selectById(workNo);
         if (teacher == null || !passwordEncoder.matches(oldPwd, teacher.getPassword()))

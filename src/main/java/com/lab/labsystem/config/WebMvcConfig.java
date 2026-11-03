@@ -37,7 +37,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addInterceptor(new JwtInterceptor(stringRedisTemplate, studentMapper, teacherMapper, sysAdminMapper))
                 .addPathPatterns("/api/**") // ⚠️ 拦截所有 API
                 .excludePathPatterns("/api/login/**")
-                .excludePathPatterns("/api/captcha");
+                .excludePathPatterns("/api/captcha")
+                .excludePathPatterns("/api/refresh-token"); // 🛑【核心修复】放行无感刷新接口
                 
         // 2. 访问日志拦截器
         registry.addInterceptor(new AccessLogInterceptor())

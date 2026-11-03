@@ -1,6 +1,7 @@
 package com.lab.labsystem.common;
 
-import lombok.extern.slf4j.Slf4j; // 🛑 新增
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC; // 🛑【核心新增】引入 MDC 获取 Trace ID
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.validation.BindException;
@@ -9,7 +10,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-@Slf4j // 🛑 开启日志
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -26,10 +27,14 @@ public class GlobalExceptionHandler {
         // 🛑 记录完整的错误堆栈
         log.error("系统发生未捕获异常: ", e);
         
+        // 🛑【核心新增】获取当前的 Trace ID
+        String traceId = MDC.get("traceId");
+        String traceInfo = traceId != null ? "（追踪码: " + traceId + "）" : "";
+
         if (isDev()) {
-            return Result.error("服务器开小差了(DEV)：" + e.getMessage());
+            return Result.error("服务器开小差了(DEV)：" + e.getMessage() + traceInfo);
         } else {
-            return Result.error("服务器开小差了，请联系管理员！");
+            return Result.error("服务器开小差了，请联系管理员并提供追踪码" + traceInfo);
         }
     }
 
@@ -37,10 +42,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NullPointerException.class)
     public Result<String> handleNullPointerException(NullPointerException e) {
         log.error("触发空指针异常: ", e);
+        
+        String traceId = MDC.get("traceId");
+        String traceInfo = traceId != null ? "（追踪码: " + traceId + "）" : "";
+        
         if (isDev()) {
-            return Result.error("操作失败(DEV)：系统检测到空数据异常！");
+            return Result.error("操作失败(DEV)：系统检测到空数据异常！" + traceInfo);
         }
-        return Result.error("操作失败：系统处理数据时遇到了一点小问题！");
+        return Result.error("操作失败：系统处理数据时遇到了一点小问题！" + traceInfo);
     }
 
     // 3. 处理业务逻辑异常（适用于你手动 throw new RuntimeException 的情况）

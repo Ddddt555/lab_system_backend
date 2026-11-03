@@ -3,6 +3,7 @@ package com.lab.labsystem.service;
 import io.minio.*;
 import io.minio.http.Method;
 import io.minio.messages.Item;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,25 @@ public class MinioService {
 
     @Value("${minio.bucket-name}")
     private String bucketName;
+
+    /**
+     * 【核心修复】系统启动时自动检查并创建 Bucket
+     * 彻底解决 NoSuchBucket 报错，保证全新部署开箱即用
+     */
+    @PostConstruct
+    public void init() {
+        try {
+            boolean found = minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
+            if (!found) {
+                minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
+                System.out.println("✅ MinIO 存储桶 [" + bucketName + "] 初始化成功！");
+            } else {
+                System.out.println("✅ MinIO 存储桶 [" + bucketName + "] 已存在，无需创建。");
+            }
+        } catch (Exception e) {
+            System.err.println("❌ MinIO 存储桶初始化失败: " + e.getMessage());
+        }
+    }
 
     /** 上传文件 */
     public String upload(MultipartFile file, String objectName) throws Exception {
@@ -86,7 +106,7 @@ public class MinioService {
     }
 
     /** 
-     * 🛑【新增：获取 MinIO 所有文件列表】🛑
+     * 【新增：获取 MinIO 所有文件列表】
      * 用于定时任务扫描并清理孤儿文件（有文件但数据库无记录）
      */
     public List<String> listAllFiles() throws Exception {
@@ -99,8 +119,9 @@ public class MinioService {
         }
         return fileNames;
     }
+    
     /**
-     * 🛑【新增】获取文件的最后修改时间（用于防误删正在上传的文件）
+     * 【新增】获取文件的最后修改时间（用于防误删正在上传的文件）
      */
     public java.time.LocalDateTime getLastModifiedTime(String objectName) throws Exception {
         io.minio.StatObjectResponse stat = minioClient.statObject(

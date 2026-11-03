@@ -10,7 +10,6 @@ services:
       TZ: Asia/Shanghai
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./db_structure.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - lab-net
     healthcheck:
@@ -18,21 +17,35 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # 日志轮转，防止磁盘爆满
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ================= 2. Redis 缓存 =================
   redis:
     image: redis:7.2-alpine
     container_name: labsystem-redis-prod
     restart: always
+    # 开启 AOF 持久化，并使用环境变量注入密码
+    command: redis-server --appendonly yes --requirepass "${REDIS_PASSWORD}"
     volumes:
       - redis-data:/data
     networks:
       - lab-net
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
+    # 日志轮转
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ================= 3. MinIO 对象存储 =================
   minio:
@@ -43,9 +56,10 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+    # 安全规范：生产环境绝不将 MinIO 端口暴露给宿主机
+    # ports:
+    #   - "9000:9000"
+    #   - "9001:9001"
     volumes:
       - minio-data:/data
     networks:
@@ -55,6 +69,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # 日志轮转
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ================= 4. Spring Boot 后端 =================
   backend:
@@ -65,10 +85,11 @@ services:
       - SPRING_PROFILES_ACTIVE=prod
       - DB_HOST=mysql
       - DB_PORT=3306
-      - DB_USERNAME=root
-      - DB_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_APP_PASSWORD}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
       - MINIO_ENDPOINT=http://minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
@@ -85,24 +106,39 @@ services:
     networks:
       - lab-net
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/actuator/health"]
+      # 🛑【核心修复】使用 readiness 探针，避免依赖服务抖动导致容器被频繁重启
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/actuator/health/readiness"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 30s
+    # 日志轮转
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m" # 后端日志可能较多，给 20m
+        max-file: "5"   # 保留 5 个文件
 
   # ================= 5. Nginx 前端 =================
   frontend:
-    # 🛑 修正路径：退两级目录找到前端代码进行构建
     build: ../../lab-system-frontend
     container_name: labsystem-frontend-prod
     restart: always
     ports:
       - "80:80"
+    volumes:
+      # 🛑【核心新增】将 Nginx 日志挂载到宿主机，防止容器销毁后日志丢失
+      - ./logs/nginx:/var/log/nginx
     depends_on:
       - backend
     networks:
       - lab-net
+    # 日志轮转
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   mysql-data:

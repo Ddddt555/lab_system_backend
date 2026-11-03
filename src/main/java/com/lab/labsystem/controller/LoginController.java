@@ -115,7 +115,7 @@ public class LoginController {
             @RequestParam String password,
             @RequestParam String captchaKey,
             @RequestParam String captchaCode,
-            HttpServletRequest request) { // 🛑 新增 request
+            HttpServletRequest request) {
 
         try {
             checkAccountLocked("student", username);
@@ -146,14 +146,20 @@ public class LoginController {
         clearLoginFail("student", username);
         saveLoginLog("学生-" + username, "登录成功", request);
 
-        String token = JwtUtil.generateToken(student.getStudentNo(), "student");
-        Map<String, Object> data = new HashMap<>();
+        // 🛑【核心改造】生成双 Token
+        String accessToken = JwtUtil.generateAccessToken(student.getStudentNo(), "student");
+        String refreshToken = JwtUtil.generateRefreshToken(student.getStudentNo(), "student");
         
+        // 🛑 将 Refresh Token 存入 Redis，有效期 7 天
+        stringRedisTemplate.opsForValue().set("refresh_token:" + student.getStudentNo(), refreshToken, Duration.ofDays(7));
+
+        Map<String, Object> data = new HashMap<>();
         LoginUserVO userVO = new LoginUserVO(student.getStudentNo(), student.getName(), "student");
         userVO.setMustChangePassword(student.getMustChangePassword() != null && student.getMustChangePassword() == 1);
         
         data.put("user", userVO);
-        data.put("token", token);
+        data.put("token", accessToken);
+        data.put("refreshToken", refreshToken);
 
         return Result.success(data);
     }
@@ -165,7 +171,7 @@ public class LoginController {
             @RequestParam String password,
             @RequestParam String captchaKey,
             @RequestParam String captchaCode,
-            HttpServletRequest request) { // 🛑 新增 request
+            HttpServletRequest request) {
 
         try {
             checkAccountLocked("teacher", username);
@@ -196,14 +202,20 @@ public class LoginController {
         clearLoginFail("teacher", username);
         saveLoginLog("教师-" + username, "登录成功", request);
 
-        String token = JwtUtil.generateToken(teacher.getWorkNo(), "teacher");
-        Map<String, Object> data = new HashMap<>();
+        // 🛑【核心改造】生成双 Token
+        String accessToken = JwtUtil.generateAccessToken(teacher.getWorkNo(), "teacher");
+        String refreshToken = JwtUtil.generateRefreshToken(teacher.getWorkNo(), "teacher");
         
+        // 🛑 将 Refresh Token 存入 Redis，有效期 7 天
+        stringRedisTemplate.opsForValue().set("refresh_token:" + teacher.getWorkNo(), refreshToken, Duration.ofDays(7));
+
+        Map<String, Object> data = new HashMap<>();
         LoginUserVO userVO = new LoginUserVO(teacher.getWorkNo(), teacher.getName(), "teacher");
         userVO.setMustChangePassword(teacher.getMustChangePassword() != null && teacher.getMustChangePassword() == 1);
         
         data.put("user", userVO);
-        data.put("token", token);
+        data.put("token", accessToken);
+        data.put("refreshToken", refreshToken);
 
         return Result.success(data);
     }
@@ -215,7 +227,7 @@ public class LoginController {
             @RequestParam String password,
             @RequestParam String captchaKey,
             @RequestParam String captchaCode,
-            HttpServletRequest request) { // 🛑 新增 request
+            HttpServletRequest request) {
 
         try {
             checkAccountLocked("admin", username);
@@ -231,15 +243,21 @@ public class LoginController {
             clearLoginFail("admin", username);
             saveLoginLog("管理员-" + username, "登录成功", request);
 
-            String token = JwtUtil.generateToken(username, "admin");
-            Map<String, Object> data = new HashMap<>();
+            // 🛑【核心改造】生成双 Token
+            String accessToken = JwtUtil.generateAccessToken(username, "admin");
+            String refreshToken = JwtUtil.generateRefreshToken(username, "admin");
             
+            // 🛑 将 Refresh Token 存入 Redis，有效期 7 天
+            stringRedisTemplate.opsForValue().set("refresh_token:" + username, refreshToken, Duration.ofDays(7));
+
+            Map<String, Object> data = new HashMap<>();
             SysAdmin admin = sysAdminMapper.selectOne(new QueryWrapper<SysAdmin>().eq("username", username));
             LoginUserVO userVO = new LoginUserVO(username, "超级管理员", "admin");
             userVO.setMustChangePassword(admin != null && admin.getMustChangePassword() != null && admin.getMustChangePassword() == 1);
             
             data.put("user", userVO);
-            data.put("token", token);
+            data.put("token", accessToken);
+            data.put("refreshToken", refreshToken);
 
             return Result.success(data);
         }
@@ -258,7 +276,7 @@ public class LoginController {
     public Result<Object> testLogin(
             @RequestParam String username,
             @RequestParam String role,
-            HttpServletRequest request) { // 🛑 新增 request
+            HttpServletRequest request) {
         
         String activeProfile = System.getProperty("spring.profiles.active");
         if (activeProfile == null) {
@@ -277,10 +295,15 @@ public class LoginController {
             return Result.error("非法的角色类型！");
         }
 
-        String token = JwtUtil.generateToken(username, role);
+        // 🛑【核心改造】测试接口也返回双 Token
+        String accessToken = JwtUtil.generateAccessToken(username, role);
+        String refreshToken = JwtUtil.generateRefreshToken(username, role);
+        stringRedisTemplate.opsForValue().set("refresh_token:" + username, refreshToken, Duration.ofDays(7));
+
         Map<String, Object> data = new HashMap<>();
         data.put("user", new LoginUserVO(username, "测试用户-" + username, role));
-        data.put("token", token);
+        data.put("token", accessToken);
+        data.put("refreshToken", refreshToken);
 
         saveLoginLog("测试登录-" + username, "使用免验证码通道", request);
         return Result.success(data);
@@ -295,6 +318,7 @@ public class LoginController {
             try {
                 Claims claims = JwtUtil.parseToken(token);
                 String jti = claims.getId();
+                String userNo = claims.getSubject();
                 java.util.Date expiration = claims.getExpiration();
                 long remainingSeconds = (expiration.getTime() - System.currentTimeMillis()) / 1000;
 
@@ -304,6 +328,10 @@ public class LoginController {
                             "1", 
                             Duration.ofSeconds(remainingSeconds)
                     );
+                }
+                // 🛑 退出时顺便清理 Redis 中的 Refresh Token
+                if (userNo != null) {
+                    stringRedisTemplate.delete("refresh_token:" + userNo);
                 }
             } catch (Exception e) {
                 // 忽略异常
@@ -327,5 +355,45 @@ public class LoginController {
         stringRedisTemplate.opsForValue().set("ws:ticket:" + ticket, userInfo, java.time.Duration.ofSeconds(30));
         
         return Result.success(ticket);
+    }
+
+    // =========================================================
+    // 🛑【核心新增】无感刷新 Access Token 接口
+    // =========================================================
+    @Operation(summary = "刷新 Access Token", description = "使用 Refresh Token 换取新的 Access Token")
+    @PostMapping("/refresh-token")
+    public Result<Object> refreshToken(@RequestParam String refreshToken) {
+        try {
+            // 1. 解析 Refresh Token
+            Claims claims = JwtUtil.parseToken(refreshToken);
+            String userNo = claims.getSubject();
+            String role = (String) claims.get("role");
+            String type = (String) claims.get("type");
+
+            // 2. 必须是 refresh 类型，防止拿 Access Token 来刷新
+            if (!"refresh".equals(type)) {
+                return Result.error("无效的刷新令牌类型！");
+            }
+
+            // 3. 校验 Redis 中的 Refresh Token 是否一致（防止已被登出或伪造）
+            String redisKey = "refresh_token:" + userNo;
+            String cachedToken = stringRedisTemplate.opsForValue().get(redisKey);
+            if (cachedToken == null || !cachedToken.equals(refreshToken)) {
+                return Result.error("刷新令牌已失效，请重新登录！");
+            }
+
+            // 4. 签发新的 Access Token
+            String newAccessToken = JwtUtil.generateAccessToken(userNo, role);
+            
+            // 5. 刷新 Refresh Token 的 Redis 过期时间（滑动过期，只要你在用就一直有效）
+            stringRedisTemplate.expire(redisKey, Duration.ofDays(7));
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("token", newAccessToken);
+            return Result.success(data);
+
+        } catch (Exception e) {
+            return Result.error("刷新令牌无效或已过期！");
+        }
     }
 }

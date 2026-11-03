@@ -48,6 +48,24 @@ public class SecurityHardeningTest {
 
     @BeforeAll
     void init() {
+        // 🛑【最高级别安全防护】强行拦截非测试库
+        try {
+            String dbUrl = jdbcTemplate.getDataSource().getConnection().getMetaData().getURL();
+            System.out.println("🔍 当前测试连接的数据库 URL: " + dbUrl);
+            
+            if (dbUrl == null || !dbUrl.contains("_test")) {
+                throw new RuntimeException(
+                    "🚨 严重安全警报：检测到测试类试图连接非测试库 [" + dbUrl + "]！\n" +
+                    "为了防止误删生产数据，已强行终止测试！请检查 src/test/resources/application.yaml"
+                );
+            }
+        } catch (Exception e) {
+            if (e instanceof RuntimeException) {
+                throw (RuntimeException) e;
+            }
+            throw new RuntimeException("🚨 测试数据库连接检查失败，测试已终止！", e);
+        }
+
         System.out.println("\n🚀 ========== 开始执行 P0 阶段安全与并发自动化回归测试 ==========");
     }
 

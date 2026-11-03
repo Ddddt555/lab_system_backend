@@ -3,12 +3,12 @@
 # ============================================================
 app:
   security:
-    # 🛑 生产环境绝对禁止通过后门登录！
+    # 生产环境绝对禁止通过后门登录！
     test-login-enabled: false
-  # 🛑 生产环境绝对禁止开启 cpolar 兼容
+  # 生产环境绝对禁止开启 cpolar 兼容
   cpolar-compatible: false
 
-# 🛑 生产环境关闭 Knife4j 接口文档
+# 生产环境关闭 Knife4j 接口文档
 knife4j:
   enable: false
   production: true
@@ -17,7 +17,7 @@ knife4j:
 cors:
   allowed-origins: ${CORS_ORIGINS}
 
-# 🛑 生产环境数据库和密钥必须从环境变量读取，绝不回退到本地默认值
+# 生产环境数据库、Redis和密钥必须从环境变量读取，绝不回退到默认值
 spring:
   datasource:
     password: ${DB_PASSWORD}
@@ -25,6 +25,11 @@ spring:
       maximum-pool-size: 20
       minimum-idle: 5
       idle-timeout: 300000
+
+  # 🛑【新增】生产环境强制要求提供 Redis 密码，如果环境变量缺失将无法启动
+  data:
+    redis:
+      password: ${REDIS_PASSWORD}
 
 jwt:
   secret: ${JWT_SECRET}
@@ -42,3 +47,22 @@ logging:
   level:
     root: info
     com.lab.labsystem: info
+
+# ============================================================
+# 生产环境安全加固：关闭监控端点敏感信息泄露，并开启探针
+# ============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true # 🛑【核心新增】开启探针
+  health:
+    livenessstate:
+      enabled: true # 开启存活探针
+    readinessstate:
+      enabled: true # 开启就绪探针
