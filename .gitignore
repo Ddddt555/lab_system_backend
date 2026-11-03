@@ -38,8 +38,18 @@ logs/
 uploads/
 *.log
 *.txt
+
+### ###
+# 数据库和附件的本地备份目录（极度重要，绝不能把备份传上 Git）
+backup/
+
+# 测试用的大文件（比如刚才用 fsutil 造的 60MB 假文件）
+test_*.pdf
+test_*.zip
+
 # 排除生成的代码汇总文件，防止下次被提交
 backend_code.txt
+project_code.txt
 
 ### 压缩包与大文件 ###
 *.tar
@@ -58,4 +68,5 @@ src/main/resources/static/assets/
 src/main/resources/static/index.html
 src/main/resources/static/favicon.ico
 
+### 保护个人隐私 ###
 docs/

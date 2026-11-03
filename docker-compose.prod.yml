@@ -78,7 +78,8 @@ services:
 
   # ================= 4. Spring Boot 后端 =================
   backend:
-    build: .
+    # 🛑【核心改造】不再本地 build，直接拉取云端镜像
+    image: gthgs/labsystem:latest
     container_name: labsystem-backend-prod
     restart: always
     environment:
@@ -106,7 +107,7 @@ services:
     networks:
       - lab-net
     healthcheck:
-      # 🛑【核心修复】使用 readiness 探针，避免依赖服务抖动导致容器被频繁重启
+      # 使用 readiness 探针，避免依赖服务抖动导致容器被频繁重启
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/actuator/health/readiness"]
       interval: 15s
       timeout: 5s
@@ -127,7 +128,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      # 🛑【核心新增】将 Nginx 日志挂载到宿主机，防止容器销毁后日志丢失
+      # 将 Nginx 日志挂载到宿主机，防止容器销毁后日志丢失
       - ./logs/nginx:/var/log/nginx
     depends_on:
       - backend
@@ -147,4 +148,4 @@ volumes:
 
 networks:
   lab-net:
-    driver: bridge
+    driver: "bridge"
