@@ -31,6 +31,15 @@ spring:
     redis:
       password: ${REDIS_PASSWORD}
 
+  # 🛑【核心新增】生产环境 Flyway 策略收紧
+  flyway:
+    # 生产环境绝对禁止执行 clean 命令（防止误删全库）
+    clean-disabled: true
+    # 每次启动强制校验迁移脚本的 checksum，防止历史脚本被篡改
+    validate-on-migrate: true
+    # 生产环境禁止在已有非空数据库上强行 baseline，必须走正规迁移流程
+    baseline-on-migrate: false
+
 jwt:
   secret: ${JWT_SECRET}
 
