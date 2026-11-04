@@ -127,7 +127,8 @@ services:
 
   # ================= 5. Nginx 前端 =================
   frontend:
-    build: ../../lab-system-frontend
+    # 🛑【核心改造】直接拉取云端镜像，不再依赖本地源码
+    image: gthgs/labsystem-frontend:latest
     container_name: labsystem-frontend-prod
     restart: always
     ports:
@@ -136,7 +137,8 @@ services:
       # 将 Nginx 日志挂载到宿主机，防止容器销毁后日志丢失
       - ./logs/nginx:/var/log/nginx
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - lab-net
     # 日志轮转
