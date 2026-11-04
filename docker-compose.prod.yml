@@ -8,8 +8,13 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: lab_management
       TZ: Asia/Shanghai
+      # 🛑【核心新增】将应用账号变量传给 MySQL 容器，供初始化脚本使用
+      DB_USERNAME: ${DB_USERNAME}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD}
     volumes:
       - mysql-data:/var/lib/mysql
+      # 🛑【核心新增】挂载初始化脚本目录，首次启动自动执行
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     networks:
       - lab-net
     healthcheck:
