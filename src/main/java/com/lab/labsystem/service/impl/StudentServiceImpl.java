@@ -123,20 +123,49 @@ public class StudentServiceImpl implements StudentService {
                 .head(com.lab.labsystem.dto.StudentImportDTO.class).sheet().doReadSync();
 
         int successCount = 0;
-        int failCount = 0;
-        for (com.lab.labsystem.dto.StudentImportDTO dto : list) {
+        List<String> errorMsgs = new ArrayList<>();
+
+        for (int i = 0; i < list.size(); i++) {
+            com.lab.labsystem.dto.StudentImportDTO dto = list.get(i);
+            int rowNum = i + 2; // 🛑 核心：Excel 表头占第 1 行，数据从第 2 行开始
             try {
+                // 1. 基础校验：姓名
+                if (dto.getName() == null || dto.getName().trim().isEmpty()) {
+                    throw new RuntimeException("姓名不能为空");
+                }
+                // 2. 基础校验：行政班
+                if (dto.getAdminClassNo() == null || dto.getAdminClassNo().trim().isEmpty()) {
+                    throw new RuntimeException("行政班号不能为空");
+                }
+                // 3. 业务校验：行政班必须存在
+                if (adminClassMapper.selectById(dto.getAdminClassNo()) == null) {
+                    throw new RuntimeException("行政班号 [" + dto.getAdminClassNo() + "] 不存在");
+                }
+
                 Student student = new Student();
                 student.setStudentNo(numberGenerator.generateStudentNo());
                 student.setName(dto.getName());
                 student.setAdminClassNo(dto.getAdminClassNo());
                 student.setPassword(passwordEncoder.encode("123456"));
+                student.setMustChangePassword(1); // 强制首次登录改密
                 studentMapper.insert(student);
                 successCount++;
+
             } catch (Exception e) {
-                failCount++;
+                // 🛑 捕获具体异常，记录行号、姓名和原因
+                String errName = dto.getName() != null ? dto.getName() : "空";
+                errorMsgs.add("第 " + rowNum + " 行 (" + errName + ") 导入失败：" + e.getMessage());
             }
         }
-        return "导入完成！成功：" + successCount + " 条，失败：" + failCount + " 条";
+
+        // 组装最终返回结果
+        StringBuilder result = new StringBuilder();
+        result.append("导入完成！成功：").append(successCount).append(" 条，失败：").append(errorMsgs.size()).append(" 条。");
+        
+        // 如果有失败，把详细信息拼在返回字符串里
+        if (!errorMsgs.isEmpty()) {
+            result.append("\n\n失败详情：\n").append(String.join("\n", errorMsgs));
+        }
+        return result.toString();
     }
 }

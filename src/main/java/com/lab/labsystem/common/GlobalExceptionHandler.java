@@ -1,7 +1,7 @@
 package com.lab.labsystem.common;
 
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC; // 🛑【核心新增】引入 MDC 获取 Trace ID
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.validation.BindException;
@@ -9,6 +9,10 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+// 🛑【新增导包】
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 
 @Slf4j
 @RestControllerAdvice
@@ -27,7 +31,7 @@ public class GlobalExceptionHandler {
         // 🛑 记录完整的错误堆栈
         log.error("系统发生未捕获异常: ", e);
         
-        // 🛑【核心新增】获取当前的 Trace ID
+        // 🛑 获取当前的 Trace ID
         String traceId = MDC.get("traceId");
         String traceInfo = traceId != null ? "（追踪码: " + traceId + "）" : "";
 
@@ -87,5 +91,26 @@ public class GlobalExceptionHandler {
             return Result.error(fieldError.getDefaultMessage());
         }
         return Result.error("参数绑定失败，请检查输入！");
+    }
+
+    // 7. 🛑【新增】处理上传文件超限异常
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public Result<String> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
+        log.warn("文件上传超过大小限制: {}", e.getMessage());
+        return Result.error("上传失败：文件大小超出了系统允许的上限（单文件最大 50MB）！");
+    }
+
+    // 8. 🛑【新增】处理请求方法不支持异常（比如用 GET 请求 POST 接口）
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public Result<String> handleMethodNotSupportedException(HttpRequestMethodNotSupportedException e) {
+        log.warn("请求方式错误: {}", e.getMessage());
+        return Result.error("操作失败：请求方式不被支持！");
+    }
+
+    // 9. 🛑【新增】处理接口参数缺失异常（比如必填项没传）
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public Result<String> handleMissingParamException(MissingServletRequestParameterException e) {
+        log.warn("缺少必要参数: {}", e.getParameterName());
+        return Result.error("操作失败：缺少必要参数 [" + e.getParameterName() + "]！");
     }
 }
