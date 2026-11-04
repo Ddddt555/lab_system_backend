@@ -37,7 +37,9 @@ jobs:
       with:
         context: .
         push: true
-        # 🛑 注意：这里需要改成你自己的 Docker Hub 账号名/labsystem
-        tags: ${{ secrets.DOCKER_USERNAME }}/labsystem:latest
+        # 注意：这里需要改成你自己的 Docker Hub 账号名/labsystem
+        tags: |
+          ${{ secrets.DOCKER_USERNAME }}/labsystem:latest
+          ${{ secrets.DOCKER_USERNAME }}/labsystem:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max

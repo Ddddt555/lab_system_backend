@@ -84,7 +84,7 @@ services:
   # ================= 4. Spring Boot 后端 =================
   backend:
     # 🛑【核心改造】不再本地 build，直接拉取云端镜像
-    image: gthgs/labsystem:latest
+    image: gthgs/labsystem:${IMAGE_TAG:-latest}
     container_name: labsystem-backend-prod
     restart: always
     environment:
@@ -128,7 +128,7 @@ services:
   # ================= 5. Nginx 前端 =================
   frontend:
     # 🛑【核心改造】直接拉取云端镜像，不再依赖本地源码
-    image: gthgs/labsystem-frontend:latest
+    image: gthgs/labsystem-frontend:${IMAGE_TAG:-latest}
     container_name: labsystem-frontend-prod
     restart: always
     ports:
