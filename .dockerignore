@@ -17,7 +17,12 @@ uploads/
 # ============================================================
 # 构建产物与压缩包
 # ============================================================
-target/
+target/classes/
+target/test-classes/
+target/generated-sources/
+target/generated-test-sources/
+target/maven-status/
+target/surefire-reports/
 *.tar
 *.zip
 *.rar
