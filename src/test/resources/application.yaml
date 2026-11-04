@@ -1,25 +1,31 @@
 # 专门为 Maven 打包测试准备的配置，不污染本地环境
+# 🛑 安全基线：本文件不允许出现任何明文密码/密钥
+# 本地运行测试前必须设置以下环境变量：
+#   DB_PASSWORD        测试库密码
+#   MINIO_ACCESS_KEY   MinIO 访问用户名
+#   MINIO_SECRET_KEY   MinIO 访问密钥
+# CI 环境通过 GitHub Secrets 注入，见 .github/workflows/ci.yml
+
 spring:
   datasource:
     # 核心修复：测试库必须加 _test 后缀，严禁连主库
     url: jdbc:mysql://localhost:3306/lab_management_test?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    # 改为环境变量占位符
-    password: ${DB_PASSWORD:***REMOVED_MYSQL_ROOT_PASSWORD***} 
+    password: ${DB_PASSWORD}
   data:
     redis:
       host: localhost
       port: 6379
 
 jwt:
+  # 测试专用假密钥，不是生产密钥，可保留
   secret: TestSecretKeyForJwtTokenMustBeAtLeast32BytesLong!
   expire-hours: 24
 
 minio:
   endpoint: http://127.0.0.1:9000
-  # 改为环境变量占位符
-  access-key: ${MINIO_ACCESS_KEY:labminio}
-  secret-key: ${MINIO_SECRET_KEY:***REMOVED_MINIO_ROOT_PASSWORD***}
+  access-key: ${MINIO_ACCESS_KEY}
+  secret-key: ${MINIO_SECRET_KEY}
   bucket-name: lab-files
 
 app:
