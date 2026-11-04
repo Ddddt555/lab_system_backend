@@ -1,2 +1,2 @@
-/mvnw text eol=lf
-*.cmd text eol=crlf
+# 强制 Shell 脚本使用 LF 换行符，防止在 Linux 容器中报错
+*.sh text eol=lf
