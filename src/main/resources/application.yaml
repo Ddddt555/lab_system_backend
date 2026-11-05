@@ -99,6 +99,10 @@ management:
     web:
       exposure:
         include: health,info,prometheus # 🛑【核心修改】暴露 prometheus 指标
+  # 🛑【核心新增】给所有监控指标打上应用名标签
+  metrics:
+    tags:
+      application: labsystem
   endpoint:
     health:
       show-details: always
