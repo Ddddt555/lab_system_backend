@@ -9,7 +9,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
 
-    # 🛑【核心新增】启动测试所需的 MySQL 和 Redis 服务容器
+    # 🛑【核心新增】启动测试所需的 MySQL、Redis 和 MinIO 服务容器
     services:
       mysql:
         image: mysql:8.0
@@ -24,34 +24,44 @@ jobs:
         ports:
           - 6379:6379
         options: --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=5
+      # 🛑【新增】MinIO 对象存储测试服务
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: testminio
+          MINIO_ROOT_PASSWORD: testminio
+          MINIO_DEFAULT_BUCKETS: lab-files
+        ports:
+          - 9000:9000
 
     steps:
     - name: 1. 检出代码
       uses: actions/checkout@v4
 
     - name: 2. 设置 Java 21 环境
-      uses: actions/setup-java@v3
+      # 🛑 升级到 v4 解决警告
+      uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
         cache: maven
 
     - name: 3. 安装 MySQL 客户端并初始化测试库
-      # 🛑 在 Runner 里执行 SQL 脚本，建表并插入测试数据
+      # 🛑 将 mysql-client 改为 default-mysql-client 以适配新版 Ubuntu
       run: |
-        sudo apt-get update && sudo apt-get install -y mysql-client
+        sudo apt-get update && sudo apt-get install -y default-mysql-client
         mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V1__init.sql
         mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V2__init_data.sql
         mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V3__add_notice_read.sql
         mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < run_test_data.sql
 
     - name: 4. 编译打包并运行测试 (质量门禁)
-      # 🛑 移除 -DskipTests，并注入测试所需的环境变量
       run: mvn clean package
       env:
         DB_PASSWORD: root
         MINIO_ACCESS_KEY: testminio
         MINIO_SECRET_KEY: testminio
+        MINIO_ENDPOINT: http://127.0.0.1:9000 # 🛑【新增】
 
     - name: 5. 设置 Docker Buildx
       uses: docker/setup-buildx-action@v3

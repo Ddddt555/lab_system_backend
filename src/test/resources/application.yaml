@@ -12,6 +12,11 @@ spring:
     url: jdbc:mysql://localhost:3306/lab_management_test?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: ${DB_PASSWORD}
+  
+  # 🛑【新增】测试库已经通过 CI 脚本手动初始化，关闭 Flyway 防止重复建表报错
+  flyway:
+    enabled: false
+
   data:
     redis:
       host: localhost
