@@ -1,0 +1,145 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: labsystem-mysql-test
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: lab_management
+      TZ: Asia/Shanghai
+      DB_USERNAME: ${DB_USERNAME}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data-test:/var/lib/mysql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - lab-net-test
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: labsystem-redis-test
+    restart: always
+    command: redis-server --appendonly yes --requirepass "${REDIS_PASSWORD}"
+    volumes:
+      - redis-data-test:/data
+    networks:
+      - lab-net-test
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    container_name: labsystem-minio-test
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data-test:/data
+    networks:
+      - lab-net-test
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: gthgs/labsystem:${IMAGE_TAG:-latest}
+    container_name: labsystem-backend-test
+    restart: always
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_APP_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - CPOLAR_COMPATIBLE=false
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - lab-net-test
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # 🛑【新增】Prometheus 监控采集
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: labsystem-prometheus-test
+    restart: always
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data-test:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - lab-net-test
+    depends_on:
+      - backend
+
+  # 🛑【新增】Grafana 监控大盘
+  grafana:
+    image: grafana/grafana:latest
+    container_name: labsystem-grafana-test
+    restart: always
+    volumes:
+      - grafana-data-test:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    ports:
+      - "3000:3000"
+    networks:
+      - lab-net-test
+    depends_on:
+      - prometheus
+
+  frontend:
+    image: gthgs/labsystem-frontend:${IMAGE_TAG:-latest}
+    container_name: labsystem-frontend-test
+    restart: always
+    ports:
+      - "8081:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - lab-net-test
+
+volumes:
+  mysql-data-test:
+  redis-data-test:
+  minio-data-test:
+  prometheus-data-test:
+  grafana-data-test:
+
+networks:
+  lab-net-test:
+    driver: "bridge"

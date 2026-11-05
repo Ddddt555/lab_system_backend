@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s # 每 15 秒抓取一次数据
+  evaluation_interval: 15s
+
+scrape_configs:
+  # 监控 Prometheus 自身
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # 监控 Spring Boot 后端
+  - job_name: 'labsystem-backend'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['backend:8080'] # 在 Docker 网络内，直接用服务名 backend 通信

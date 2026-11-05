@@ -125,6 +125,47 @@ services:
         max-size: "20m" # 后端日志可能较多，给 20m
         max-file: "5"   # 保留 5 个文件
 
+  # ================= 4.5 Prometheus 监控采集 =================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: labsystem-prometheus-prod
+    restart: always
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090" # 建议在生产服务器上用 Nginx 代理并加密码，测试先直接暴露
+    networks:
+      - lab-net
+    depends_on:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ================= 4.6 Grafana 监控大盘 =================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: labsystem-grafana-prod
+    restart: always
+    volumes:
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin # 初始管理员密码，强烈建议登录后修改
+    ports:
+      - "3000:3000"
+    networks:
+      - lab-net
+    depends_on:
+      - prometheus
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ================= 5. Nginx 前端 =================
   frontend:
     # 🛑【核心改造】直接拉取云端镜像，不再依赖本地源码
@@ -152,6 +193,8 @@ volumes:
   mysql-data:
   redis-data:
   minio-data:
+  prometheus-data: # 🛑【核心新增】
+  grafana-data:    # 🛑【核心新增】
 
 networks:
   lab-net:
