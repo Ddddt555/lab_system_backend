@@ -48,7 +48,6 @@ jobs:
       run: mvn clean package
       env:
         DB_PASSWORD: root
-        # 🛑 不需要真实的 MinIO，填假值即可，不影响测试逻辑
         MINIO_ACCESS_KEY: testminio
         MINIO_SECRET_KEY: testminio
 
@@ -66,8 +65,21 @@ jobs:
       with:
         context: .
         push: true
+        # 这里先推送，方便下一步直接扫描远端镜像
         tags: |
           ${{ secrets.DOCKER_USERNAME }}/labsystem:latest
           ${{ secrets.DOCKER_USERNAME }}/labsystem:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+
+    # 🛑【核心新增】Trivy 镜像漏洞扫描
+    - name: 8. 镜像安全扫描 (Trivy)
+      uses: aquasecurity/trivy-action@0.24.0
+      with:
+        image-ref: ${{ secrets.DOCKER_USERNAME }}/labsystem:${{ github.sha }}
+        format: 'table'
+        # 发现 CRITICAL 或 HIGH 级别漏洞时，退出码设为 1，阻断流水线
+        exit-code: '1'
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: 'CRITICAL,HIGH'
