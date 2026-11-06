@@ -130,7 +130,8 @@ public class LoginController {
         Student student = studentMapper.selectOne(new QueryWrapper<Student>().eq("student_no", username));
         if (student == null) {
             saveLoginLog("学生-" + username, "登录失败：学号不存在", request);
-            return Result.error("学号不存在！");
+            // 【安全加固】对外统一提示，避免通过返回文案枚举出有效学号
+            return Result.error("学号或密码错误！");
         }
 
         if (!passwordEncoder.matches(password, student.getPassword())) {
@@ -140,7 +141,7 @@ public class LoginController {
             } catch (RuntimeException e) {
                 return Result.error(e.getMessage());
             }
-            return Result.error("密码错误！");
+            return Result.error("学号或密码错误！");
         }
 
         clearLoginFail("student", username);
@@ -186,7 +187,8 @@ public class LoginController {
         Teacher teacher = teacherMapper.selectOne(new QueryWrapper<Teacher>().eq("work_no", username));
         if (teacher == null) {
             saveLoginLog("教师-" + username, "登录失败：工号不存在", request);
-            return Result.error("工号不存在！");
+            // 【安全加固】对外统一提示，避免通过返回文案枚举出有效工号
+            return Result.error("工号或密码错误！");
         }
 
         if (!passwordEncoder.matches(password, teacher.getPassword())) {
@@ -196,7 +198,7 @@ public class LoginController {
             } catch (RuntimeException e) {
                 return Result.error(e.getMessage());
             }
-            return Result.error("密码错误！");
+            return Result.error("工号或密码错误！");
         }
 
         clearLoginFail("teacher", username);
@@ -362,7 +364,18 @@ public class LoginController {
     // =========================================================
     @Operation(summary = "刷新 Access Token", description = "使用 Refresh Token 换取新的 Access Token")
     @PostMapping("/refresh-token")
-    public Result<Object> refreshToken(@RequestParam String refreshToken) {
+    public Result<Object> refreshToken(
+            @RequestParam(required = false) String refreshToken,
+            @RequestBody(required = false) Map<String, String> body) {
+        // 【安全加固】优先从请求体读取，避免 Refresh Token 出现在 URL 查询串中
+        // （URL 会进入 Nginx access_log、浏览器历史和 Referer，便于令牌泄露与被检索）。
+        // 保留 query 参数作为兼容入口，但前端已改为走请求体。
+        if (refreshToken == null && body != null) {
+            refreshToken = body.get("refreshToken");
+        }
+        if (refreshToken == null || refreshToken.isEmpty()) {
+            return Result.error("缺少刷新令牌！");
+        }
         try {
             // 1. 解析 Refresh Token
             Claims claims = JwtUtil.parseToken(refreshToken);

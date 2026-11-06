@@ -1,6 +1,11 @@
 package com.lab.labsystem.controller;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.lab.labsystem.config.RedisPubSubConfig;
+import com.lab.labsystem.entity.ExpSession;
+import com.lab.labsystem.entity.StudentBooking;
+import com.lab.labsystem.mapper.ExpSessionMapper;
+import com.lab.labsystem.mapper.StudentBookingMapper;
 import jakarta.websocket.*;
 import jakarta.websocket.server.PathParam;
 import jakarta.websocket.server.ServerEndpoint;
@@ -21,10 +26,22 @@ import java.util.concurrent.CopyOnWriteArraySet;
 public class AttendanceWebSocket implements MessageListener {
 
     private static StringRedisTemplate stringRedisTemplate;
+    private static ExpSessionMapper expSessionMapper;
+    private static StudentBookingMapper studentBookingMapper;
 
     @Autowired
     public void setStringRedisTemplate(StringRedisTemplate template) {
         AttendanceWebSocket.stringRedisTemplate = template;
+    }
+
+    @Autowired
+    public void setExpSessionMapper(ExpSessionMapper mapper) {
+        AttendanceWebSocket.expSessionMapper = mapper;
+    }
+
+    @Autowired
+    public void setStudentBookingMapper(StudentBookingMapper mapper) {
+        AttendanceWebSocket.studentBookingMapper = mapper;
     }
 
     // 存储房间信息：key: 场次号, value: 连接集合
@@ -45,18 +62,67 @@ public class AttendanceWebSocket implements MessageListener {
         }
 
         String redisKey = "ws:ticket:" + ticket;
-        String userNo = stringRedisTemplate.opsForValue().get(redisKey);
-        
-        if (userNo == null) {
+        String ticketValue = stringRedisTemplate.opsForValue().get(redisKey);
+
+        if (ticketValue == null) {
             closeSession(session, "票据无效或已过期");
             return;
         }
         stringRedisTemplate.delete(redisKey);
 
+        // 票据内容格式为 "工号/学号:角色"，必须先拆开，不能整体当作身份使用
+        String[] parts = ticketValue.split(":");
+        String userNo = parts.length > 0 ? parts[0] : null;
+        String role = parts.length > 1 ? parts[1] : null;
+
+        if (userNo == null || userNo.isEmpty()) {
+            closeSession(session, "票据内容异常");
+            return;
+        }
+
+        // 【安全加固】房间级授权：票据只证明"你是谁"，不证明"你能看这个场次"。
+        // 必须校验该用户与本场次存在关系，否则任何合法登录用户都可以订阅任意场次的考勤广播。
+        if (!isAllowedToJoinSession(userNo, role, sessionNo)) {
+            closeSession(session, "无权访问该场次的考勤");
+            return;
+        }
+
         sessionPools.computeIfAbsent(sessionNo, k -> new CopyOnWriteArraySet<>()).add(session);
         activeTimeMap.put(session, System.currentTimeMillis());
-        
-        System.out.println("🔌 [考勤WS] 用户 " + userNo + " 成功进入房间: " + sessionNo);
+
+        System.out.println("🔌 [考勤WS] 用户 " + userNo + "(" + role + ") 成功进入房间: " + sessionNo);
+    }
+
+    /**
+     * 判断用户是否有权订阅指定场次的考勤广播。
+     * 管理员放行；教师仅限本人授课场次；学生仅限本人已预约的场次。
+     */
+    private boolean isAllowedToJoinSession(String userNo, String role, String sessionNo) {
+        if ("admin".equals(role)) {
+            return true;
+        }
+        if (expSessionMapper == null || studentBookingMapper == null) {
+            return false;
+        }
+
+        ExpSession expSession = expSessionMapper.selectById(sessionNo);
+        if (expSession == null) {
+            return false;
+        }
+
+        if ("teacher".equals(role)) {
+            return userNo.equals(expSession.getWorkNo());
+        }
+
+        if ("student".equals(role)) {
+            Long booked = studentBookingMapper.selectCount(new QueryWrapper<StudentBooking>()
+                    .eq("student_no", userNo)
+                    .eq("session_no", sessionNo)
+                    .eq("status", 1));
+            return booked != null && booked > 0;
+        }
+
+        return false;
     }
 
     @OnMessage
