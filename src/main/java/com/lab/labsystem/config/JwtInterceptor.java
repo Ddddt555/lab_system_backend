@@ -51,6 +51,18 @@ public class JwtInterceptor implements HandlerInterceptor {
         if (token != null) {
             try {
                 Claims claims = JwtUtil.parseToken(token);
+
+                // 【安全加固】只接受 Access Token。
+                // Refresh Token 只能用于 /api/refresh-token 换取新的 Access Token；
+                // 否则 7 天有效期的 Refresh Token 可被直接当作 Access Token 使用，
+                // 使 30 分钟的短效 Access Token 机制完全失效。
+                if (!"access".equals(claims.get("type"))) {
+                    log.warn("🚫 拒绝使用非 Access Token 访问接口: {}, type={}",
+                            request.getRequestURI(), claims.get("type"));
+                    response.setStatus(401);
+                    return false;
+                }
+
                 String jti = claims.getId();
                 
                 if (jti != null && Boolean.TRUE.equals(stringRedisTemplate.hasKey("jwt:blacklist:" + jti))) {

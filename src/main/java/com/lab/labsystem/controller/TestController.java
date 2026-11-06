@@ -14,13 +14,20 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 public class TestController {
 
     @GetMapping("/getPwd")
-    public String getPwd() {
-        // 🛑【安全警告】🛑
-        // 这是一个极度危险的测试接口。
-        // 它被故意放在 /api 前缀之外，所以不会被 JwtInterceptor 拦截。
-        // 只能用于开发者本地测试 Bcrypt 加密结果。
-        // 切勿在任何公网环境（如 cpolar 演示）中通过浏览器直接访问此路径！
-    	
-        return new BCryptPasswordEncoder().encode("123456");
+    public org.springframework.http.ResponseEntity<String> getPwd(
+            jakarta.servlet.http.HttpServletRequest request) {
+        // 【安全加固】仅允许本机回环地址调用。
+        // 该接口不经过 JwtInterceptor，一旦在非生产 profile 的公网环境（如 cpolar 演示）
+        // 暴露，任何人都可以无限次调用。这里直接返回 404，不抛异常
+        // （GlobalExceptionHandler 会兜底捕获异常并转成 200，掩盖真实状态码）。
+        String remoteAddr = request.getRemoteAddr();
+        boolean isLoopback = "127.0.0.1".equals(remoteAddr)
+                || "::1".equals(remoteAddr)
+                || "0:0:0:0:0:0:0:1".equals(remoteAddr);
+        if (!isLoopback) {
+            return org.springframework.http.ResponseEntity.notFound().build();
+        }
+        return org.springframework.http.ResponseEntity.ok(
+                new BCryptPasswordEncoder().encode("123456"));
     }
 }
