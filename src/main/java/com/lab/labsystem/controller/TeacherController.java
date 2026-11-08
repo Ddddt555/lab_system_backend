@@ -31,6 +31,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.annotation.LogRecord;
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.PageResult;
+import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.common.Result;
 // 🛑【关键引入】引入我们即将创建的文件类型校验工具类
 import com.lab.labsystem.common.FileTypeUtils; 
@@ -136,7 +137,7 @@ public class TeacherController {
             Page<ExpProject> projectPage = projectMapper.selectPage(new Page<>(page, size), qw);
             return Result.success(new PageResult<>(projectPage.getTotal(), projectPage.getRecords()));
         }
-        return Result.success(projectMapper.selectList(qw));
+        return Result.success(QueryLimits.list(projectMapper, qw));
     }
 
     @Operation(summary = "发布实验项目")
@@ -301,7 +302,7 @@ public class TeacherController {
             sessionList = sessionPage.getRecords();
             total = sessionPage.getTotal();
         } else {
-            sessionList = sessionMapper.selectList(qw);
+            sessionList = QueryLimits.list(sessionMapper, qw);
         }
 
         if (sessionList.isEmpty()) {

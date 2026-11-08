@@ -20,6 +20,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.annotation.RateLimit;
 import com.lab.labsystem.common.PageResult;
+import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.common.Result;
 import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
@@ -180,7 +181,7 @@ public class StudentController {
             bookingList = bookingPage.getRecords();
             total = bookingPage.getTotal();
         } else {
-            bookingList = bookingMapper.selectList(queryWrapper);
+            bookingList = QueryLimits.list(bookingMapper, queryWrapper);
         }
 
         if (bookingList.isEmpty()) {
@@ -281,7 +282,7 @@ public class StudentController {
             sessionList = sessionPage.getRecords();
             total = sessionPage.getTotal();
         } else {
-            sessionList = sessionMapper.selectList(null);
+            sessionList = QueryLimits.list(sessionMapper, null);
         }
 
         if (sessionList.isEmpty()) {
