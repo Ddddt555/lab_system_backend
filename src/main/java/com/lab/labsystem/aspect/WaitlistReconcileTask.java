@@ -12,8 +12,10 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
 
 @Component
+@Slf4j
 public class WaitlistReconcileTask {
 
     @Autowired private WaitlistRecordMapper waitlistRecordMapper;
@@ -31,11 +33,11 @@ public class WaitlistReconcileTask {
         RLock lock = redissonClient.getLock("lock:task:waitlist-reconcile");
         try {
             if (!lock.tryLock(0, 5, TimeUnit.MINUTES)) {
-                System.out.println("⏳ [定时对账] 其他节点正在执行，当前节点跳过。");
+                log.info("⏳ [定时对账] 其他节点正在执行，当前节点跳过。");
                 return;
             }
 
-            System.out.println("⚖️ [定时对账] 开始核对候补队列数据...");
+            log.info("⚖️ [定时对账] 开始核对候补队列数据...");
             
             List<WaitlistRecord> dbRecords = waitlistRecordMapper.selectList(
                     new QueryWrapper<WaitlistRecord>().eq("status", "WAITING")
@@ -53,7 +55,7 @@ public class WaitlistReconcileTask {
                 boolean hasUserKey = Boolean.TRUE.equals(stringRedisTemplate.hasKey(userKey));
 
                 if (!inRedisQueue) {
-                    System.out.println("🔧 [定时对账] 发现丢失的候补人员，正在修复: " + studentNo + " (场次: " + sessionNo + ")");
+                    log.info("🔧 [定时对账] 发现丢失的候补人员，正在修复: {} (场次: {})", studentNo, sessionNo);
                     stringRedisTemplate.opsForList().rightPush(queueKey, studentNo);
                     stringRedisTemplate.opsForValue().set(userKey, "1");
                 } else if (!hasUserKey) {
@@ -61,13 +63,12 @@ public class WaitlistReconcileTask {
                 }
             }
 
-            System.out.println("✅ [定时对账] 核对完成！共检查 " + dbRecords.size() + " 名排队人员。");
+            log.info("✅ [定时对账] 核对完成！共检查 {} 名排队人员。", dbRecords.size());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            System.err.println("❌ [定时对账] 被中断: " + e.getMessage());
+            log.warn("❌ [定时对账] 被中断: {}", e.getMessage());
         } catch (Exception e) {
-            System.err.println("❌ [定时对账] 执行失败: " + e.getMessage());
-            e.printStackTrace();
+            log.error("❌ [定时对账] 执行失败", e);
         } finally {
             if (lock.isHeldByCurrentThread()) {
                 lock.unlock();

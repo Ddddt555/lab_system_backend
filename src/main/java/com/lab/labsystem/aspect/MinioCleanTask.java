@@ -14,8 +14,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
 
 @Component
+@Slf4j
 public class MinioCleanTask {
 
     @Autowired private MinioService minioService;
@@ -32,11 +34,11 @@ public class MinioCleanTask {
         try {
             // 尝试获取锁：最多等待 0 秒，如果抢不到直接放弃本次执行；锁有效期 5 分钟（防止死锁）
             if (!lock.tryLock(0, 5, TimeUnit.MINUTES)) {
-                System.out.println("⏳ [定时任务] 其他节点正在执行清理，当前节点跳过。");
+                log.info("⏳ [定时任务] 其他节点正在执行清理，当前节点跳过。");
                 return;
             }
 
-            System.out.println("🧹 [定时任务] 开始扫描 MinIO 孤儿文件...");
+            log.info("🧹 [定时任务] 开始扫描 MinIO 孤儿文件...");
             // 1. 查出数据库中所有被引用的文件
             Set<String> dbFiles = new HashSet<>();
             List<String> reportFiles = reportMapper.selectAllFileUrls();
@@ -57,19 +59,18 @@ public class MinioCleanTask {
                     if (lastModified.isBefore(safetyThreshold)) {
                         minioService.remove(minioFile);
                         deletedCount++;
-                        System.out.println("🗑️ 已清理孤儿文件: " + minioFile + " (最后修改时间: " + lastModified + ")");
+                        log.info("🗑️ 已清理孤儿文件: {} (最后修改时间: {})", minioFile, lastModified);
                     } else {
-                        System.out.println("⏳ 跳过清理，可能是正在上传的文件: " + minioFile);
+                        log.info("⏳ 跳过清理，可能是正在上传的文件: {}", minioFile);
                     }
                 }
             }
-            System.out.println("✅ [定时任务] 清理完成，共清理 " + deletedCount + " 个孤儿文件。");
+            log.info("✅ [定时任务] 清理完成，共清理 {} 个孤儿文件。", deletedCount);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            System.err.println("❌ [定时任务] 被中断: " + e.getMessage());
+            log.warn("❌ [定时任务] 被中断: {}", e.getMessage());
         } catch (Exception e) {
-            System.err.println("❌ [定时任务] 清理失败: " + e.getMessage());
-            e.printStackTrace();
+            log.error("❌ [定时任务] 清理失败", e);
         } finally {
             // 如果当前线程持有锁，才去释放
             if (lock.isHeldByCurrentThread()) {

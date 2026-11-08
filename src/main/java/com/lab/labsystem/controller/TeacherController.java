@@ -47,11 +47,13 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 
 @Tag(name = "教师端接口", description = "包含实验项目发布、场次排课、成绩管理、数据统计等功能")
 @RequireRole("teacher")
 @RestController
 @RequestMapping("/api/teacher")
+@Slf4j
 public class TeacherController {
 
     @Autowired private ExpProjectMapper projectMapper;
@@ -194,7 +196,7 @@ public class TeacherController {
         try {
             minioService.upload(file, newFileName);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("❌ 上传指导书到 MinIO 失败: {}", newFileName, e);
             return Result.error("上传指导书到对象存储失败，请重试！");
         }
 

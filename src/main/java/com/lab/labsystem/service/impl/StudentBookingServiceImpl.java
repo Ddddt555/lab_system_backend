@@ -15,8 +15,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
+@Slf4j
 public class StudentBookingServiceImpl implements StudentBookingService {
 
     @Autowired private ExpSessionMapper sessionMapper;
@@ -108,7 +110,7 @@ public class StudentBookingServiceImpl implements StudentBookingService {
             int sent = GlobalWebSocket.sendToUser(studentNo,
                 "{\"type\":\"WAITLIST_SUCCESS\",\"message\":\"您候补的实验场次已成功为您预约！\"}");
             if (sent == 0) {
-                System.err.println("[候补通知] 学生 " + studentNo + " 当前不在线，WAITLIST_SUCCESS 未推送");
+                log.debug("[候补通知] 学生 {} 当前不在线，WAITLIST_SUCCESS 未推送", studentNo);
             }
         }
 
@@ -225,7 +227,7 @@ public class StudentBookingServiceImpl implements StudentBookingService {
                 
                 break; 
             } catch (Exception e) {
-                System.err.println("候补自动预约失败: " + nextStudentNo + "，原因: " + e.getMessage());
+                log.warn("候补自动预约失败: {}，原因: {}", nextStudentNo, e.getMessage());
                 // 如果失败，可以考虑更新 MySQL 状态为 FAILED，或者直接跳过
             }
         }

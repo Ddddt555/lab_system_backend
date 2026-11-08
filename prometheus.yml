@@ -1,6 +1,16 @@
 global:
   scrape_interval: 15s # 每 15 秒抓取一次数据
-  evaluation_interval: 15s
+  evaluation_interval: 15s # 每 15 秒计算一次告警规则
+
+# 告警规则文件（与 prometheus.yml 一起挂载到容器内）
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# 告警发送到 Alertmanager
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
 
 scrape_configs:
   # 监控 Prometheus 自身

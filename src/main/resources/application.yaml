@@ -103,6 +103,13 @@ management:
   metrics:
     tags:
       application: labsystem
+    # 【告警支撑】为 HTTP 请求耗时输出直方图（_bucket），
+    # 否则 Prometheus 里的 P95 延迟告警（histogram_quantile）没有数据可用。
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 100ms,300ms,500ms,1s,3s
   endpoint:
     health:
       show-details: always
