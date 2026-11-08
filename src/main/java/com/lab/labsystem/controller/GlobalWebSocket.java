@@ -14,9 +14,11 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
+import lombok.extern.slf4j.Slf4j;
 
 @Component
 @ServerEndpoint("/ws/global")
+@Slf4j
 public class GlobalWebSocket implements MessageListener {
 
     private static StringRedisTemplate stringRedisTemplate;
@@ -56,7 +58,7 @@ public class GlobalWebSocket implements MessageListener {
         userRooms.computeIfAbsent(userNo, k -> new CopyOnWriteArraySet<>()).add(session);
         activeTimeMap.put(session, System.currentTimeMillis());
 
-        System.out.println("📢 [全局WS] 用户上线: " + userNo + " (角色: " + role + ")");
+        log.info("📢 [全局WS] 用户上线: {} (角色: {})", userNo, role);
     }
 
     @OnMessage
@@ -80,7 +82,7 @@ public class GlobalWebSocket implements MessageListener {
 
     @OnError
     public void onError(Session session, Throwable error) {
-        error.printStackTrace();
+        log.error("❌ [全局WS] WebSocket 连接异常", error);
     }
 
     private void closeSession(Session session, String reason) {
@@ -127,7 +129,7 @@ public class GlobalWebSocket implements MessageListener {
                 doSendToUserLocal(userNo, actualMsg);
             }
         } catch (Exception e) {
-            System.err.println("❌ [全局WS] 处理 Redis 消息失败: " + e.getMessage());
+            log.error("❌ [全局WS] 处理 Redis 消息失败", e);
         }
     }
 

@@ -20,9 +20,11 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
+import lombok.extern.slf4j.Slf4j;
 
 @Component
 @ServerEndpoint("/ws/attendance/{sessionNo}")
+@Slf4j
 public class AttendanceWebSocket implements MessageListener {
 
     private static StringRedisTemplate stringRedisTemplate;
@@ -90,7 +92,7 @@ public class AttendanceWebSocket implements MessageListener {
         sessionPools.computeIfAbsent(sessionNo, k -> new CopyOnWriteArraySet<>()).add(session);
         activeTimeMap.put(session, System.currentTimeMillis());
 
-        System.out.println("🔌 [考勤WS] 用户 " + userNo + "(" + role + ") 成功进入房间: " + sessionNo);
+        log.info("🔌 [考勤WS] 用户 {}({}) 成功进入房间: {}", userNo, role, sessionNo);
     }
 
     /**
@@ -132,7 +134,7 @@ public class AttendanceWebSocket implements MessageListener {
             try {
                 session.getBasicRemote().sendText("PONG");
             } catch (IOException e) {
-                e.printStackTrace();
+                log.warn("❌ [考勤WS] 发送 PONG 失败: {}", e.getMessage());
             }
         }
     }
@@ -149,7 +151,7 @@ public class AttendanceWebSocket implements MessageListener {
 
     @OnError
     public void onError(Session session, Throwable error) {
-        error.printStackTrace();
+        log.error("❌ [考勤WS] 连接异常", error);
     }
 
     private void closeSession(Session session, String reason) {
@@ -187,12 +189,12 @@ public class AttendanceWebSocket implements MessageListener {
                     try {
                         session.getBasicRemote().sendText(actualMsg);
                     } catch (IOException e) {
-                        e.printStackTrace();
+                        log.warn("❌ [考勤WS] 广播消息发送失败: {}", e.getMessage());
                     }
                 }
             }
         } catch (Exception e) {
-            System.err.println("❌ [考勤WS] 处理 Redis 消息失败: " + e.getMessage());
+            log.error("❌ [考勤WS] 处理 Redis 消息失败", e);
         }
     }
 

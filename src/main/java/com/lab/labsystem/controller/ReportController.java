@@ -54,10 +54,12 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 
 @Tag(name = "实验报告接口", description = "包含学生报告上传、多版本控制、教师批阅、文件安全下载与预览等")
 @RestController
 @RequestMapping("/api/report")
+@Slf4j
 public class ReportController {
 
     @Autowired private ExpReportMapper reportMapper;
@@ -157,11 +159,11 @@ public class ReportController {
             Thread.currentThread().interrupt();
             return Result.error("系统繁忙，请稍后重试！");
         } catch (DuplicateKeyException e) {
-            System.err.println("版本号冲突，并发插入被唯一键拦截: " + newFileName);
+            log.warn("版本号冲突，并发插入被唯一键拦截: {}", newFileName);
             if (minioUploadSuccess) minioService.remove(newFileName);
             return Result.error("网络开小差了，请稍后重试！");
         } catch (Exception e) {
-            System.err.println("数据库写入失败，开始清理 MinIO 孤儿文件: " + newFileName);
+            log.error("数据库写入失败，开始清理 MinIO 孤儿文件: {}", newFileName, e);
             if (minioUploadSuccess) minioService.remove(newFileName);
             throw new RuntimeException("数据库保存失败，文件已清理，请重试！", e);
         } finally {
@@ -226,7 +228,7 @@ public class ReportController {
     private void streamFromMinio(String fileName, HttpServletResponse response, boolean inline, HttpServletRequest request) {
         String ticketFileName = (String) request.getAttribute("ticketFileName");
         if (ticketFileName != null && !ticketFileName.equals(fileName)) {
-            System.err.println("⚠️ 拦截非法越权：Ticket 绑定文件=" + ticketFileName + ", 尝试下载=" + fileName);
+            log.warn("⚠️ 拦截非法越权：Ticket 绑定文件={}, 尝试下载={}", ticketFileName, fileName);
             response.setStatus(403);
             return;
         }
@@ -247,7 +249,7 @@ public class ReportController {
             org.springframework.util.StreamUtils.copy(is, response.getOutputStream());
             response.flushBuffer();
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("❌ 读取 MinIO 文件流失败: {}", fileName, e);
             response.setStatus(500);
         }
     }

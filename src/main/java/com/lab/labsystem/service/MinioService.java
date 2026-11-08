@@ -13,8 +13,10 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
+@Slf4j
 public class MinioService {
 
     @Autowired
@@ -33,12 +35,12 @@ public class MinioService {
             boolean found = minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
             if (!found) {
                 minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
-                System.out.println("✅ MinIO 存储桶 [" + bucketName + "] 初始化成功！");
+                log.info("✅ MinIO 存储桶 [{}] 初始化成功！", bucketName);
             } else {
-                System.out.println("✅ MinIO 存储桶 [" + bucketName + "] 已存在，无需创建。");
+                log.info("✅ MinIO 存储桶 [{}] 已存在，无需创建。", bucketName);
             }
         } catch (Exception e) {
-            System.err.println("❌ MinIO 存储桶初始化失败: " + e.getMessage());
+            log.error("❌ MinIO 存储桶初始化失败", e);
         }
     }
 
@@ -91,7 +93,7 @@ public class MinioService {
                     .build()
             );
         } catch (Exception e) {
-            System.err.println("清理 MinIO 文件失败: " + objectName + ", 原因: " + e.getMessage());
+            log.error("清理 MinIO 文件失败: {}", objectName, e);
         }
     }
 
