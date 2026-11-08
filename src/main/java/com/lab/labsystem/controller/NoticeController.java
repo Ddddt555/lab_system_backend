@@ -2,6 +2,7 @@ package com.lab.labsystem.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.lab.labsystem.annotation.RequireRole;
+import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.common.Result;
 import com.lab.labsystem.entity.SysNotice;
 import com.lab.labsystem.entity.SysNoticeRead;
@@ -110,10 +111,10 @@ public class NoticeController {
                 return Result.error("未知角色，无权查看通知！");
         }
         qw.orderByDesc("create_time");
-        List<SysNotice> notices = noticeMapper.selectList(qw);
+        List<SysNotice> notices = QueryLimits.list(noticeMapper, qw);
 
         // 🛑【核心新增】查询当前用户已读的通知ID集合
-        List<SysNoticeRead> reads = noticeReadMapper.selectList(
+        List<SysNoticeRead> reads = QueryLimits.list(noticeReadMapper,
                 new QueryWrapper<SysNoticeRead>().eq("user_no", userNo));
         Set<String> readIds = reads.stream()
                 .map(SysNoticeRead::getNoticeId)
@@ -145,10 +146,10 @@ public class NoticeController {
         } else {
             qw.eq("target_role", "all");
         }
-        List<SysNotice> notices = noticeMapper.selectList(qw);
+        List<SysNotice> notices = QueryLimits.list(noticeMapper, qw);
 
         // 查出已读记录，避免重复插入
-        List<SysNoticeRead> reads = noticeReadMapper.selectList(
+        List<SysNoticeRead> reads = QueryLimits.list(noticeReadMapper,
                 new QueryWrapper<SysNoticeRead>().eq("user_no", userNo));
         Set<String> readIds = reads.stream()
                 .map(SysNoticeRead::getNoticeId)

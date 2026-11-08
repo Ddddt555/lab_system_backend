@@ -29,6 +29,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.FileTypeUtils;
+import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.common.Result;
 import com.lab.labsystem.entity.AdminClass;
 import com.lab.labsystem.entity.Department;
@@ -297,7 +298,7 @@ public class ReportController {
         qw.eq("student_no", studentNo)
           .eq("project_no", projectNo)
           .orderByDesc("version");
-        return Result.success(reportMapper.selectList(qw));
+        return Result.success(QueryLimits.list(reportMapper, qw));
     }
 
     // ========== 7. 教师端项目报告列表 ==========
@@ -317,7 +318,7 @@ public class ReportController {
 
         QueryWrapper<ExpReport> qw = new QueryWrapper<>();
         qw.eq("project_no", projectNo).eq("is_latest", 1);
-        List<ExpReport> reportList = reportMapper.selectList(qw);
+        List<ExpReport> reportList = QueryLimits.list(reportMapper, qw);
 
         if (reportList.isEmpty()) return Result.success(new ArrayList<>());
 

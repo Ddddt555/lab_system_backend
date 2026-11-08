@@ -57,7 +57,9 @@ public class AdminController {
         QueryWrapper<SysLog> qw = new QueryWrapper<>();
         qw.orderByDesc("create_time");
         if (page != null && size != null) return Result.success(logMapper.selectPage(new Page<>(page, size), qw));
-        return Result.success(logMapper.selectList(qw));
+        // 【安全加固】未传分页参数时默认返回第 1 页，不再整表返回。
+        // sys_log 是增长最快的表，原先不带 page/size 就能一次拉走全部数据。
+        return Result.success(logMapper.selectPage(new Page<>(1, 100), qw));
     }
 
     // ========== 学生管理 ==========
