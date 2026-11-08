@@ -132,6 +132,7 @@ services:
     restart: always
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     ports:
       - "9090:9090" # 建议在生产服务器上用 Nginx 代理并加密码，测试先直接暴露
@@ -139,6 +140,26 @@ services:
       - lab-net
     depends_on:
       - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ================= 4.55 Alertmanager 告警分发 =================
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: labsystem-alertmanager-prod
+    restart: always
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"
+    networks:
+      - lab-net
+    depends_on:
+      - prometheus
     logging:
       driver: "json-file"
       options:
@@ -195,6 +216,7 @@ volumes:
   minio-data:
   prometheus-data: # 🛑【核心新增】
   grafana-data:    # 🛑【核心新增】
+  alertmanager-data:
 
 networks:
   lab-net:

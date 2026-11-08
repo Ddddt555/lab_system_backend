@@ -1,0 +1,161 @@
+groups:
+  # ==========================================================
+  # 可用性
+  # ==========================================================
+  - name: labsystem-availability
+    rules:
+      - alert: BackendDown
+        expr: up{job="labsystem-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: '后端服务不可用'
+          description: 'Prometheus 已连续 1 分钟抓取不到 {{ $labels.instance }} 的指标，服务可能已停止或网络不通。'
+
+      - alert: BackendNoTraffic
+        expr: |
+          up{job="labsystem-backend"} == 1
+          and
+          sum(rate(http_server_requests_seconds_count{job="labsystem-backend"}[10m])) == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: '后端在运行但没有任何请求'
+          description: '进程存活，但 15 分钟内没有收到任何 HTTP 请求，可能是上游 Nginx/前端异常。'
+
+  # ==========================================================
+  # 错误率
+  # ==========================================================
+  - name: labsystem-errors
+    rules:
+      - alert: HighServerErrorRate
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{job="labsystem-backend", status=~"5.."}[5m]))
+            /
+            sum(rate(http_server_requests_seconds_count{job="labsystem-backend"}[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: '5xx 错误率超过 5%'
+          description: '最近 5 分钟服务端错误占比为 {{ $value | humanizePercentage }}，请检查日志中的异常堆栈。'
+
+      - alert: ServerErrorBurst
+        expr: increase(http_server_requests_seconds_count{job="labsystem-backend", status=~"5.."}[5m]) > 50
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: '5xx 错误突增'
+          description: '5 分钟内新增 {{ $value }} 次服务端错误。'
+
+      - alert: HighClientErrorRate
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{job="labsystem-backend", status=~"4.."}[10m]))
+            /
+            sum(rate(http_server_requests_seconds_count{job="labsystem-backend"}[10m]))
+          ) > 0.3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: '4xx 比例异常偏高'
+          description: '4xx 占比 {{ $value | humanizePercentage }}，可能是客户端版本不兼容，或正在被扫描/暴力尝试。'
+
+  # ==========================================================
+  # 延迟
+  # ==========================================================
+  - name: labsystem-latency
+    rules:
+      - alert: HighP95Latency
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_server_requests_seconds_bucket{job="labsystem-backend"}[5m]))
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: '接口 P95 延迟超过 1 秒'
+          description: 'P95 延迟为 {{ $value }}s，已持续 5 分钟。请结合慢 SQL 或 GC 情况排查。'
+
+  # ==========================================================
+  # 资源与依赖
+  # ==========================================================
+  - name: labsystem-resources
+    rules:
+      - alert: JvmHeapUsageHigh
+        expr: |
+          sum(jvm_memory_used_bytes{job="labsystem-backend", area="heap"})
+          /
+          sum(jvm_memory_max_bytes{job="labsystem-backend", area="heap"})
+          > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'JVM 堆内存使用率超过 85%'
+          description: '当前堆内存使用率 {{ $value | humanizePercentage }}，存在 OOM 风险。'
+
+      - alert: ProcessCpuHigh
+        expr: process_cpu_usage{job="labsystem-backend"} > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: '后端进程 CPU 使用率超过 80%'
+          description: 'CPU 使用率 {{ $value | humanizePercentage }}，持续 10 分钟。'
+
+      - alert: HikariPoolSaturated
+        expr: |
+          hikaricp_connections_active{job="labsystem-backend"}
+          /
+          hikaricp_connections_max{job="labsystem-backend"}
+          > 0.9
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: '数据库连接池接近耗尽'
+          description: '活跃连接已占最大连接数的 {{ $value | humanizePercentage }}，请检查是否存在慢查询或连接泄漏。'
+
+      - alert: HikariConnectionsPending
+        expr: hikaricp_connections_pending{job="labsystem-backend"} > 3
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: '请求正在排队等待数据库连接'
+          description: '有 {{ $value }} 个线程在等待连接池分配连接，业务已出现阻塞。'
+
+      - alert: TomcatThreadsNearLimit
+        expr: |
+          tomcat_threads_busy_threads{job="labsystem-backend"}
+          /
+          tomcat_threads_config_max_threads{job="labsystem-backend"}
+          > 0.9
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Tomcat 工作线程接近上限'
+          description: '繁忙线程占比 {{ $value | humanizePercentage }}，继续增长将拒绝新请求。'
+
+  # ==========================================================
+  # 监控自身
+  # ==========================================================
+  - name: labsystem-self
+    rules:
+      - alert: PrometheusTargetMissing
+        expr: absent(up{job="labsystem-backend"})
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: '监控目标消失'
+          description: 'Prometheus 已无法发现 labsystem-backend 目标，请检查 prometheus.yml 与容器网络。'
