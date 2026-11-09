@@ -15,4 +15,13 @@ public interface TeacherScoreService {
     
     // ⚠️ 新增：当报告被批阅后，自动重算该学生的报告均分和总评
     void recalculateAfterGrade(String studentNo, String classNo);
+
+    // 教学班成绩列表（含内存分页）
+    Object getCourseScores(String currentWorkNo, String classNo, Integer page, Integer size);
+
+    // 成绩分布统计（优/良/中/及格/不及格）
+    java.util.Map<String, Integer> getScoreDistribution(String currentWorkNo);
+
+    // 实验开出率统计
+    java.util.Map<String, Object> getExperimentRate(String currentWorkNo);
 }

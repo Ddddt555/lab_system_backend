@@ -4,15 +4,20 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
 import com.lab.labsystem.service.TeacherScoreService;
+import com.lab.labsystem.vo.SessionVO;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
+import com.lab.labsystem.common.PageResult;
+
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -237,5 +242,142 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
             }
         }
         return "权重修改成功，已自动重算 " + count + " 名学生的成绩！";
+    }
+    @Override
+    public Object getCourseScores(String currentWorkNo, String classNo, Integer page, Integer size) {
+        List<ExpProject> projects = projectMapper.selectList(
+                new QueryWrapper<ExpProject>().eq("class_no", classNo));
+        if (projects.isEmpty()) {
+            return (page != null && size != null) ? new PageResult<>(0, new ArrayList<>()) : new ArrayList<>();
+        }
+        List<String> projectNos = projects.stream()
+                .map(ExpProject::getProjectNo).collect(Collectors.toList());
+
+        List<ExpSession> sessions = sessionMapper.selectList(
+                new QueryWrapper<ExpSession>().in("project_no", projectNos).eq("work_no", currentWorkNo));
+        if (sessions.isEmpty()) {
+            return (page != null && size != null) ? new PageResult<>(0, new ArrayList<>()) : new ArrayList<>();
+        }
+        List<String> sessionNos = sessions.stream()
+                .map(ExpSession::getSessionNo).collect(Collectors.toList());
+
+        List<StudentBooking> bookings = bookingMapper.selectList(
+                new QueryWrapper<StudentBooking>().in("session_no", sessionNos).eq("status", 1));
+        if (bookings.isEmpty()) {
+            return (page != null && size != null) ? new PageResult<>(0, new ArrayList<>()) : new ArrayList<>();
+        }
+
+        List<String> allStudentNos = bookings.stream()
+                .map(StudentBooking::getStudentNo).distinct().collect(Collectors.toList());
+
+        long total = allStudentNos.size();
+        List<String> pageStudentNos = allStudentNos;
+
+        // 内存分页（截取当前页的学号）
+        if (page != null && size != null) {
+            int fromIndex = (page - 1) * size;
+            if (fromIndex >= total) {
+                return new PageResult<>(total, new ArrayList<>());
+            }
+            int toIndex = Math.min(fromIndex + size, allStudentNos.size());
+            pageStudentNos = allStudentNos.subList(fromIndex, toIndex);
+        }
+
+        if (pageStudentNos.isEmpty()) {
+            return new PageResult<>(total, new ArrayList<>());
+        }
+
+        Map<String, String> studentNameMap = studentMapper.selectBatchIds(pageStudentNos).stream()
+                .collect(Collectors.toMap(Student::getStudentNo, Student::getName, (k1, k2) -> k1));
+
+        Map<String, ExpScore> scoreMap = scoreMapper.selectList(
+                new QueryWrapper<ExpScore>().eq("class_no", classNo).in("student_no", pageStudentNos))
+                .stream().collect(Collectors.toMap(ExpScore::getStudentNo, s -> s, (k1, k2) -> k1));
+
+        List<SessionVO> resultList = new ArrayList<>();
+        for (String sNo : pageStudentNos) {
+            SessionVO vo = new SessionVO();
+            vo.setStudentNo(sNo);
+            vo.setTeacherName(studentNameMap.getOrDefault(sNo, "未知学生"));
+
+            ExpScore existScore = scoreMap.get(sNo);
+            if (existScore != null) {
+                vo.setScore(existScore.getDailyScore());
+                vo.setReportScore(existScore.getReportScore());
+                vo.setTotalScore(existScore.getTotalScore());
+            } else {
+                vo.setScore(0.0);
+                vo.setReportScore(0.0);
+                vo.setTotalScore(0.0);
+            }
+            resultList.add(vo);
+        }
+
+        return (page != null && size != null) ? new PageResult<>(total, resultList) : resultList;
+    }
+
+    @Override
+    public Map<String, Integer> getScoreDistribution(String currentWorkNo) {
+        int excellent = 0, good = 0, medium = 0, pass = 0, fail = 0;
+        Map<String, Integer> result = new HashMap<>();
+
+        List<TeachClass> myClasses = teachClassMapper.selectList(
+                new QueryWrapper<TeachClass>().eq("work_no", currentWorkNo));
+        List<String> myClassNos = myClasses.stream()
+                .map(TeachClass::getClassNo).collect(Collectors.toList());
+
+        if (myClassNos.isEmpty()) {
+            result.put("优秀", 0);
+            result.put("良好", 0);
+            result.put("中等", 0);
+            result.put("及格", 0);
+            result.put("不及格", 0);
+            return result;
+        }
+
+        List<ExpScore> scores = scoreMapper.selectList(
+                new QueryWrapper<ExpScore>().in("class_no", myClassNos).isNotNull("total_score"));
+        for (ExpScore s : scores) {
+            double score = s.getTotalScore();
+            if (score >= 90) excellent++;
+            else if (score >= 80) good++;
+            else if (score >= 70) medium++;
+            else if (score >= 60) pass++;
+            else fail++;
+        }
+
+        result.put("优秀", excellent);
+        result.put("良好", good);
+        result.put("中等", medium);
+        result.put("及格", pass);
+        result.put("不及格", fail);
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> getExperimentRate(String currentWorkNo) {
+        List<TeachClass> myClasses = teachClassMapper.selectList(
+                new QueryWrapper<TeachClass>().eq("work_no", currentWorkNo));
+        List<String> myClassNos = myClasses.stream()
+                .map(TeachClass::getClassNo).collect(Collectors.toList());
+
+        long totalProjects = 0;
+        if (!myClassNos.isEmpty()) {
+            totalProjects = projectMapper.selectCount(
+                    new QueryWrapper<ExpProject>().in("class_no", myClassNos));
+        }
+
+        List<ExpSession> mySessions = sessionMapper.selectList(
+                new QueryWrapper<ExpSession>().eq("work_no", currentWorkNo));
+        long openedProjects = mySessions.stream()
+                .map(ExpSession::getProjectNo).distinct().count();
+
+        double rate = totalProjects == 0 ? 0 : (double) openedProjects / totalProjects * 100;
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("total", totalProjects);
+        result.put("opened", openedProjects);
+        result.put("rate", String.format("%.1f", rate));
+        return result;
     }
 }
