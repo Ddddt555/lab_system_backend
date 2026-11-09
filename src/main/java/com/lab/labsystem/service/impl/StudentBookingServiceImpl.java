@@ -6,15 +6,27 @@ import com.lab.labsystem.websocket.GlobalWebSocket;
 import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
 import com.lab.labsystem.service.StudentBookingService;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.lab.labsystem.common.PageResult;
+import com.lab.labsystem.common.QueryLimits;
+import com.lab.labsystem.vo.SessionVO;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 
 @Service
@@ -28,6 +40,7 @@ public class StudentBookingServiceImpl implements StudentBookingService {
     @Autowired private ExpReportMapper reportMapper;
     @Autowired private WaitlistRecordMapper waitlistRecordMapper;
     @Autowired private StringRedisTemplate stringRedisTemplate;
+    @Autowired private TeacherMapper teacherMapper;
 
     // 候补队列在 Redis 中的 Key 前缀
     private static final String WAITLIST_QUEUE_PREFIX = "waitlist:queue:";
@@ -231,5 +244,89 @@ public class StudentBookingServiceImpl implements StudentBookingService {
                 // 如果失败，可以考虑更新 MySQL 状态为 FAILED，或者直接跳过
             }
         }
+    }
+    @Override
+    public Object listMyBookings(String studentNo, Integer page, Integer size) {
+        boolean paged = page != null && size != null;
+
+        QueryWrapper<StudentBooking> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("student_no", studentNo).eq("status", 1);
+
+        List<StudentBooking> bookingList;
+        long total = 0;
+        if (paged) {
+            Page<StudentBooking> bookingPage = bookingMapper.selectPage(new Page<>(page, size), queryWrapper);
+            bookingList = bookingPage.getRecords();
+            total = bookingPage.getTotal();
+        } else {
+            bookingList = QueryLimits.list(bookingMapper, queryWrapper);
+        }
+
+        if (bookingList.isEmpty()) {
+            return paged ? new PageResult<>(0, new ArrayList<>()) : new ArrayList<>();
+        }
+
+        // 批量查询场次、项目、教师、报告，消灭 N+1
+        List<String> sessionNos = bookingList.stream().map(StudentBooking::getSessionNo).collect(Collectors.toList());
+
+        Map<String, ExpSession> sessionMap = sessionMapper.selectBatchIds(sessionNos).stream()
+                .collect(Collectors.toMap(ExpSession::getSessionNo, s -> s, (k1, k2) -> k1));
+
+        Set<String> projectNos = new HashSet<>();
+        Set<String> workNos = new HashSet<>();
+        for (ExpSession session : sessionMap.values()) {
+            if (session.getProjectNo() != null) projectNos.add(session.getProjectNo());
+            if (session.getWorkNo() != null) workNos.add(session.getWorkNo());
+        }
+
+        Map<String, ExpProject> projectMap = projectNos.isEmpty() ? new HashMap<>() :
+                projectMapper.selectBatchIds(projectNos).stream()
+                        .collect(Collectors.toMap(ExpProject::getProjectNo, p -> p, (k1, k2) -> k1));
+
+        Map<String, String> teacherMap = workNos.isEmpty() ? new HashMap<>() :
+                teacherMapper.selectBatchIds(workNos).stream()
+                        .collect(Collectors.toMap(Teacher::getWorkNo, Teacher::getName, (k1, k2) -> k1));
+
+        List<ExpReport> reports = projectNos.isEmpty() ? new ArrayList<>() :
+                reportMapper.selectList(new QueryWrapper<ExpReport>()
+                        .eq("student_no", studentNo)
+                        .in("project_no", projectNos)
+                        .eq("is_latest", 1));
+        Map<String, ExpReport> reportMap = reports.stream()
+                .collect(Collectors.toMap(ExpReport::getProjectNo, r -> r, (k1, k2) -> k1));
+
+        List<SessionVO> resultList = new ArrayList<>();
+        for (StudentBooking booking : bookingList) {
+            ExpSession session = sessionMap.get(booking.getSessionNo());
+            if (session != null) {
+                SessionVO vo = new SessionVO();
+                BeanUtils.copyProperties(session, vo);
+                vo.setBookingNo(booking.getBookingNo());
+
+                if (session.getWorkNo() != null) {
+                    vo.setTeacherName(teacherMap.getOrDefault(session.getWorkNo(), "未知教师"));
+                }
+
+                if (session.getProjectNo() != null) {
+                    ExpProject project = projectMap.get(session.getProjectNo());
+                    if (project != null) {
+                        vo.setProjectName(project.getProjectName());
+                        vo.setGuideFile(project.getGuideFile());
+                    }
+
+                    ExpReport report = reportMap.get(session.getProjectNo());
+                    if (report != null) {
+                        vo.setScore(report.getScore());
+                        vo.setComment(report.getComment());
+                        vo.setIsGraded(report.getScore() != null);
+                    } else {
+                        vo.setIsGraded(false);
+                    }
+                }
+                resultList.add(vo);
+            }
+        }
+
+        return paged ? new PageResult<>(total, resultList) : resultList;
     }
 }

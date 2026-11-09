@@ -20,4 +20,7 @@ public interface StudentService {
     
     // 批量导入
     String importStudents(MultipartFile file) throws IOException;
+
+    // 学生自助修改密码
+    String changePassword(String studentNo, String oldPwd, String newPwd);
 }
