@@ -5,7 +5,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
@@ -34,12 +33,11 @@ import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.common.Result;
 // 🛑【关键引入】引入我们即将创建的文件类型校验工具类
-import com.lab.labsystem.common.FileTypeUtils; 
 import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
 import com.lab.labsystem.service.TeacherScoreService;
+import com.lab.labsystem.service.TeacherProjectService;
 import com.lab.labsystem.service.AttendanceService;
-import com.lab.labsystem.service.MinioService;
 import com.lab.labsystem.vo.SessionVO;
 import com.lab.labsystem.vo.StudentVO;
 
@@ -70,8 +68,8 @@ public class TeacherController {
     @Autowired private TeachClassMapper teachClassMapper;
     @Autowired private com.lab.labsystem.common.NumberGenerator numberGenerator;
     @Autowired private TeacherScoreService teacherScoreService;
+    @Autowired private TeacherProjectService teacherProjectService;
     @Autowired private AttendanceService attendanceService;
-    @Autowired private MinioService minioService;
 
     // ================= 0. 基础数据 =================
     @Operation(summary = "获取我的教学班列表", description = "用于下拉框选择，返回当前教师负责的所有教学班")
@@ -122,24 +120,7 @@ public class TeacherController {
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
         String workNo = (String) request.getAttribute("currentUserNo");
-        List<TeachClass> myClasses = teachClassMapper.selectList(
-                new QueryWrapper<TeachClass>().eq("work_no", workNo));
-        if (myClasses.isEmpty()) {
-            if (page != null && size != null) return Result.success(new PageResult<>(0, new ArrayList<>()));
-            return Result.success(new ArrayList<>());
-        }
-        List<String> myClassNos = myClasses.stream()
-                .map(TeachClass::getClassNo).collect(Collectors.toList());
-
-        QueryWrapper<ExpProject> qw = new QueryWrapper<ExpProject>()
-                .in("class_no", myClassNos)
-                .orderByDesc("project_no");
-
-        if (page != null && size != null) {
-            Page<ExpProject> projectPage = projectMapper.selectPage(new Page<>(page, size), qw);
-            return Result.success(new PageResult<>(projectPage.getTotal(), projectPage.getRecords()));
-        }
-        return Result.success(QueryLimits.list(projectMapper, qw));
+        return Result.success(teacherProjectService.listMyProjects(workNo, page, size));
     }
 
     @Operation(summary = "发布实验项目")
@@ -147,18 +128,7 @@ public class TeacherController {
     @PostMapping("/project/add")
     public Result<String> addProject(@RequestBody ExpProject project, HttpServletRequest request) {
         String currentWorkNo = (String) request.getAttribute("currentUserNo");
-
-        if (project.getClassNo() == null || project.getClassNo().isEmpty()) {
-            return Result.error("请选择所属教学班！");
-        }
-        TeachClass tc = teachClassMapper.selectById(project.getClassNo());
-        if (tc == null || !currentWorkNo.equals(tc.getWorkNo())) {
-            return Result.error("非法操作：您无权在该教学班下发布项目！");
-        }
-
-        project.setProjectNo(numberGenerator.generateProjectNo());
-        projectMapper.insert(project);
-        return Result.success("项目发布成功！项目号为：" + project.getProjectNo());
+        return Result.success(teacherProjectService.addProject(project, currentWorkNo));
     }
 
     @Operation(summary = "上传实验指导书")
@@ -168,46 +138,7 @@ public class TeacherController {
                                       @RequestParam("projectNo") String projectNo,
                                       HttpServletRequest request) {
         String currentWorkNo = (String) request.getAttribute("currentUserNo");
-
-        if (file.isEmpty()) return Result.error("文件不能为空！");
-        
-        ExpProject project = projectMapper.selectById(projectNo);
-        if (project == null) return Result.error("项目不存在！");
-
-        TeachClass tc = teachClassMapper.selectById(project.getClassNo());
-        if (tc == null || !currentWorkNo.equals(tc.getWorkNo())) {
-            return Result.error("非法操作：您无权操作该项目！");
-        }
-
-        String originalFilename = file.getOriginalFilename();
-        String suffix = originalFilename != null && originalFilename.contains(".") ? originalFilename.substring(originalFilename.lastIndexOf(".")).toLowerCase() : "";
-        if (!Arrays.asList(".pdf", ".doc", ".docx", ".zip", ".rar").contains(suffix)) {
-            return Result.error("文件格式非法！");
-        }
-
-        // 🛑【新增：魔数深度校验】🛑
-        // 防止黑客将木马文件改名为 .pdf 上传
-        if (!FileTypeUtils.isValidFile(file, suffix)) {
-            return Result.error("文件内容与后缀不符，非法文件已被拦截！");
-        }
-
-        String newFileName = java.util.UUID.randomUUID().toString().replace("-", "") + suffix;
-        
-        try {
-            minioService.upload(file, newFileName);
-        } catch (Exception e) {
-            log.error("❌ 上传指导书到 MinIO 失败: {}", newFileName, e);
-            return Result.error("上传指导书到对象存储失败，请重试！");
-        }
-
-        try {
-            project.setGuideFile(newFileName);
-            projectMapper.updateById(project);
-            return Result.success("指导书上传成功！");
-        } catch (Exception e) {
-            minioService.remove(newFileName);
-            throw new RuntimeException("数据库更新失败，请重试！", e);
-        }
+        return Result.success(teacherProjectService.uploadGuide(file, projectNo, currentWorkNo));
     }
 
     // ================= 2. 实验场次安排 =================
