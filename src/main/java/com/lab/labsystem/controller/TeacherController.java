@@ -1,21 +1,10 @@
 package com.lab.labsystem.controller;
 
 import java.io.IOException;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
-import java.util.Set;
-import java.util.HashSet;
-import java.util.Objects;
-import java.util.stream.Collectors;
 
-import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,88 +14,57 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.annotation.LogRecord;
 import com.lab.labsystem.annotation.RequireRole;
-import com.lab.labsystem.common.PageResult;
-import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.common.Result;
-// 🛑【关键引入】引入我们即将创建的文件类型校验工具类
-import com.lab.labsystem.entity.*;
-import com.lab.labsystem.mapper.*;
-import com.lab.labsystem.service.TeacherScoreService;
-import com.lab.labsystem.service.TeacherProjectService;
-import com.lab.labsystem.service.TeacherSessionService;
+import com.lab.labsystem.entity.ExpProject;
+import com.lab.labsystem.entity.ExpSession;
+import com.lab.labsystem.entity.LabRoom;
+import com.lab.labsystem.entity.SysSemester;
 import com.lab.labsystem.service.AttendanceService;
-import com.lab.labsystem.vo.SessionVO;
+import com.lab.labsystem.service.TeacherBaseDataService;
+import com.lab.labsystem.service.TeacherProjectService;
+import com.lab.labsystem.service.TeacherScoreService;
+import com.lab.labsystem.service.TeacherService;
+import com.lab.labsystem.service.TeacherSessionService;
 import com.lab.labsystem.vo.StudentVO;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.extern.slf4j.Slf4j;
 
 @Tag(name = "教师端接口", description = "包含实验项目发布、场次排课、成绩管理、数据统计等功能")
 @RequireRole("teacher")
 @RestController
 @RequestMapping("/api/teacher")
-@Slf4j
 public class TeacherController {
 
-    @Autowired private LabRoomMapper labRoomMapper;
-    @Autowired private com.lab.labsystem.mapper.TeacherMapper teacherMapper;
-    @Autowired private SysSemesterMapper semesterMapper;
-    @Autowired private BCryptPasswordEncoder passwordEncoder;
-    @Autowired private com.lab.labsystem.service.MustChangePasswordCache mustChangePasswordCache;
-    @Autowired private ExpReportMapper reportMapper;
-    @Autowired private ExpCourseMapper courseMapper;
-    @Autowired private TeachClassMapper teachClassMapper;
     @Autowired private TeacherScoreService teacherScoreService;
     @Autowired private TeacherProjectService teacherProjectService;
     @Autowired private TeacherSessionService teacherSessionService;
     @Autowired private AttendanceService attendanceService;
+    @Autowired private TeacherBaseDataService teacherBaseDataService;
+    @Autowired private TeacherService teacherService;
 
     // ================= 0. 基础数据 =================
     @Operation(summary = "获取我的教学班列表", description = "用于下拉框选择，返回当前教师负责的所有教学班")
     @GetMapping("/my-classes")
     public Result<List<Map<String, String>>> getMyClasses(HttpServletRequest request) {
         String workNo = (String) request.getAttribute("currentUserNo");
-        List<TeachClass> classes = teachClassMapper.selectList(
-                new QueryWrapper<TeachClass>().eq("work_no", workNo));
-
-        if (classes.isEmpty()) return Result.success(new ArrayList<>());
-
-        // 🛑【核心优化】批量查询课程，消灭 N+1
-        List<String> courseNos = classes.stream().map(TeachClass::getCourseNo).distinct().collect(Collectors.toList());
-        Map<String, String> courseMap = courseNos.isEmpty() ? new HashMap<>() :
-                courseMapper.selectBatchIds(courseNos).stream()
-                        .collect(Collectors.toMap(ExpCourse::getCourseNo, ExpCourse::getCourseName, (k1, k2) -> k1));
-
-        List<Map<String, String>> resultList = new ArrayList<>();
-        for (TeachClass tc : classes) {
-            Map<String, String> map = new HashMap<>();
-            map.put("classNo", tc.getClassNo());
-            String courseName = courseMap.getOrDefault(tc.getCourseNo(), "未知课程");
-            map.put("displayName", tc.getClassNo() + " - " + courseName + " (" + tc.getSemester() + ")");
-            map.put("dailyWeight", String.valueOf(tc.getDailyWeight() != null ? tc.getDailyWeight() : 30));
-            map.put("reportWeight", String.valueOf(tc.getReportWeight() != null ? tc.getReportWeight() : 70));
-            resultList.add(map);
-        }
-        return Result.success(resultList);
+        return Result.success(teacherBaseDataService.listMyClasses(workNo));
     }
 
     @Operation(summary = "获取实验室列表")
     @GetMapping("/labs")
     public Result<List<LabRoom>> getAllLabs() {
-        return Result.success(labRoomMapper.selectList(null));
+        return Result.success(teacherBaseDataService.listLabs());
     }
 
     @Operation(summary = "获取学期列表")
     @GetMapping("/semesters")
     public Result<List<SysSemester>> getAllSemesters() {
-        return Result.success(semesterMapper.selectList(null));
+        return Result.success(teacherBaseDataService.listSemesters());
     }
 
     // ================= 1. 实验项目管理 =================
@@ -216,22 +174,8 @@ public class TeacherController {
     public Result<String> updatePassword(HttpServletRequest request,
                                          @RequestParam String oldPwd,
                                          @RequestParam String newPwd) {
-    	 String errorMsg = com.lab.labsystem.common.PasswordValidator.validate(newPwd);
-         if (errorMsg != null) return Result.error(errorMsg);
         String workNo = (String) request.getAttribute("currentUserNo");
-        Teacher teacher = teacherMapper.selectById(workNo);
-        if (teacher == null || !passwordEncoder.matches(oldPwd, teacher.getPassword()))
-            return Result.error("原密码错误！");
-        teacher.setPassword(passwordEncoder.encode(newPwd));
-        
-        // 🛑【核心修复】改密成功后，重置强制改密状态和更新时间
-        teacher.setMustChangePassword(0);
-        teacher.setPwdUpdateTime(java.time.LocalDateTime.now());
-        
-        teacherMapper.updateById(teacher);
-        // 【缓存一致性】改密成功后清除强制改密缓存
-        mustChangePasswordCache.evict("teacher", workNo);
-        return Result.success("密码修改成功！");
+        return Result.success(teacherService.changePassword(workNo, oldPwd, newPwd));
     }
 
     // ================= 6. 数据统计 =================
