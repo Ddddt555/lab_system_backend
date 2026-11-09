@@ -1,11 +1,17 @@
 package com.lab.labsystem.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.entity.ExpCourse;
+import com.lab.labsystem.entity.ExpProject;
+import com.lab.labsystem.entity.StudentTeachClass;
 import com.lab.labsystem.entity.TeachClass;
 import com.lab.labsystem.entity.Teacher;
 import com.lab.labsystem.mapper.ExpCourseMapper;
+import com.lab.labsystem.mapper.ExpProjectMapper;
+import com.lab.labsystem.mapper.StudentTeachClassMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.mapper.TeacherMapper;
 import com.lab.labsystem.service.TeachingService;
@@ -21,6 +27,8 @@ import java.util.Map;
 @Service
 public class TeachingServiceImpl implements TeachingService {
     @Autowired private TeachClassMapper teachClassMapper;
+    @Autowired private ExpProjectMapper projectMapper;
+    @Autowired private StudentTeachClassMapper studentTeachClassMapper;
     @Autowired private ExpCourseMapper courseMapper;
     @Autowired private TeacherMapper teacherMapper;
     @Autowired private NumberGenerator numberGenerator;
@@ -63,6 +71,17 @@ public class TeachingServiceImpl implements TeachingService {
 
     @Override
     public void deleteTeachClass(String classNo) {
+        // 【引用检查】教学班被实验项目或选课记录引用时不允许删除
+        long projects = projectMapper.selectCount(
+                new QueryWrapper<ExpProject>().eq("class_no", classNo));
+        if (projects > 0) {
+            throw new BusinessException("该教学班下还有 " + projects + " 个实验项目，请先处理后再删除！");
+        }
+        long selections = studentTeachClassMapper.selectCount(
+                new QueryWrapper<StudentTeachClass>().eq("class_no", classNo));
+        if (selections > 0) {
+            throw new BusinessException("该教学班下还有 " + selections + " 名学生的选课记录，请先处理后再删除！");
+        }
         teachClassMapper.deleteById(classNo);
     }
 }
