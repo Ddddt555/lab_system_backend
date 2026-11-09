@@ -1,12 +1,7 @@
 package com.lab.labsystem.config;
 
 import com.lab.labsystem.common.JwtUtil;
-import com.lab.labsystem.entity.Student;
-import com.lab.labsystem.entity.SysAdmin;
-import com.lab.labsystem.entity.Teacher;
-import com.lab.labsystem.mapper.StudentMapper;
-import com.lab.labsystem.mapper.SysAdminMapper;
-import com.lab.labsystem.mapper.TeacherMapper;
+import com.lab.labsystem.service.MustChangePasswordCache;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -18,18 +13,12 @@ import org.springframework.web.servlet.HandlerInterceptor;
 public class JwtInterceptor implements HandlerInterceptor {
 
     private final StringRedisTemplate stringRedisTemplate;
-    private final StudentMapper studentMapper;
-    private final TeacherMapper teacherMapper;
-    private final SysAdminMapper sysAdminMapper;
+    private final MustChangePasswordCache mustChangePasswordCache;
 
-    public JwtInterceptor(StringRedisTemplate stringRedisTemplate, 
-                          StudentMapper studentMapper, 
-                          TeacherMapper teacherMapper, 
-                          SysAdminMapper sysAdminMapper) {
+    public JwtInterceptor(StringRedisTemplate stringRedisTemplate,
+                          MustChangePasswordCache mustChangePasswordCache) {
         this.stringRedisTemplate = stringRedisTemplate;
-        this.studentMapper = studentMapper;
-        this.teacherMapper = teacherMapper;
-        this.sysAdminMapper = sysAdminMapper;
+        this.mustChangePasswordCache = mustChangePasswordCache;
     }
 
     @Override
@@ -79,18 +68,10 @@ public class JwtInterceptor implements HandlerInterceptor {
 
                 // =========================================================
                 // 🛑【核心防线】检查用户是否需要强制修改密码
+                // 【性能优化】该标记改为走带 TTL 的缓存，不再每个请求都
+                // 查一次 student/teacher/sys_admin 表。
                 // =========================================================
-                boolean mustChange = false;
-                if ("student".equals(role)) {
-                    Student s = studentMapper.selectById(userNo);
-                    mustChange = (s != null && s.getMustChangePassword() != null && s.getMustChangePassword() == 1);
-                } else if ("teacher".equals(role)) {
-                    Teacher t = teacherMapper.selectById(userNo);
-                    mustChange = (t != null && t.getMustChangePassword() != null && t.getMustChangePassword() == 1);
-                } else if ("admin".equals(role)) {
-                    SysAdmin a = sysAdminMapper.selectById(userNo);
-                    mustChange = (a != null && a.getMustChangePassword() != null && a.getMustChangePassword() == 1);
-                }
+                boolean mustChange = mustChangePasswordCache.isRequired(role, userNo);
 
                 String uri = request.getRequestURI();
                 boolean isWhitelisted = uri.endsWith("/update-password") || 

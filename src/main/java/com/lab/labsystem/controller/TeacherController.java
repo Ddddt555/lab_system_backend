@@ -64,6 +64,7 @@ public class TeacherController {
     @Autowired private com.lab.labsystem.mapper.TeacherMapper teacherMapper;
     @Autowired private SysSemesterMapper semesterMapper;
     @Autowired private BCryptPasswordEncoder passwordEncoder;
+    @Autowired private com.lab.labsystem.service.MustChangePasswordCache mustChangePasswordCache;
     @Autowired private ExpReportMapper reportMapper;
     @Autowired private ExpScoreMapper scoreMapper;
     @Autowired private ExpCourseMapper courseMapper;
@@ -506,6 +507,8 @@ public class TeacherController {
         teacher.setPwdUpdateTime(java.time.LocalDateTime.now());
         
         teacherMapper.updateById(teacher);
+        // 【缓存一致性】改密成功后清除强制改密缓存
+        mustChangePasswordCache.evict("teacher", workNo);
         return Result.success("密码修改成功！");
     }
 
