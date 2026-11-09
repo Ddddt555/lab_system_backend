@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -14,7 +13,6 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.annotation.LogRecord;
 import com.lab.labsystem.annotation.RequireRole;
-import com.lab.labsystem.common.ExcelUtils;
 import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.common.Result;
 import com.lab.labsystem.entity.*;
@@ -33,18 +31,15 @@ import jakarta.validation.Valid;
 public class AdminController {
 
     @Autowired private com.lab.labsystem.service.AdminService adminService;
+    @Autowired private com.lab.labsystem.service.AdminAccountService adminAccountService;
     @Autowired private LabRoomMapper labRoomMapper;
     @Autowired private ExpCourseMapper courseMapper;
-    @Autowired private BCryptPasswordEncoder passwordEncoder;
-    @Autowired private com.lab.labsystem.service.MustChangePasswordCache mustChangePasswordCache;
     @Autowired private SysLogMapper logMapper;
     @Autowired private NumberGenerator numberGenerator;
     @Autowired private LabEquipmentMapper equipMapper;
     @Autowired private SysSemesterMapper semesterMapper;
     @Autowired private DepartmentMapper departmentMapper;
     @Autowired private TitleDictMapper titleDictMapper;
-    @Autowired private StudentMapper studentMapper;
-    @Autowired private TeacherMapper teacherMapper;
 
     @Autowired private StudentService studentService;
     @Autowired private TeacherService teacherService;
@@ -211,40 +206,14 @@ public class AdminController {
     @LogRecord("重置用户密码")
     @PostMapping("/reset-password")
     public Result<String> resetPassword(@RequestParam String account, @RequestParam String role) {
-        String defaultHash = passwordEncoder.encode("123456");
-        if ("student".equals(role)) {
-            Student student = studentMapper.selectById(account);
-            if (student == null) return Result.error("学生不存在！");
-            student.setPassword(defaultHash);
-            
-            student.setMustChangePassword(1);
-            student.setPwdUpdateTime(LocalDateTime.now());
-            studentMapper.updateById(student);
-            // 【缓存一致性】重置密码后需让缓存立即失效，否则最多 60 秒内仍被判定为"无需改密"
-            mustChangePasswordCache.evict("student", account);
-            
-        } else if ("teacher".equals(role)) {
-            Teacher teacher = teacherMapper.selectById(account);
-            if (teacher == null) return Result.error("教师不存在！");
-            teacher.setPassword(defaultHash);
-            
-            teacher.setMustChangePassword(1);
-            teacher.setPwdUpdateTime(LocalDateTime.now());
-            teacherMapper.updateById(teacher);
-            // 【缓存一致性】同上
-            mustChangePasswordCache.evict("teacher", account);
-            
-        } else { 
-            return Result.error("不支持的角色！"); 
-        }
-        return Result.success("密码已重置为 123456，该用户下次登录必须修改密码！");
+        return Result.success(adminAccountService.resetPassword(account, role));
     }
 
     @PostMapping("/update-password")
     public Result<String> updatePassword(@RequestParam String oldPassword, @RequestParam String newPassword) {
-    	 String errorMsg = com.lab.labsystem.common.PasswordValidator.validate(newPassword);
-         if (errorMsg != null) return Result.error(errorMsg);
-        if (adminService.updatePassword(oldPassword, newPassword)) return Result.success("密码修改成功，请重新登录！");
+        if (adminService.updatePassword(oldPassword, newPassword)) {
+            return Result.success("密码修改成功，请重新登录！");
+        }
         return Result.error("原密码错误！");
     }
 
@@ -325,7 +294,7 @@ public class AdminController {
 
     @GetMapping("/student/import-template")
     public void downloadStudentTemplate(HttpServletResponse response) throws IOException {
-        ExcelUtils.export(response, "学生导入模板", com.lab.labsystem.dto.StudentImportDTO.class, new ArrayList<>());
+        adminAccountService.exportStudentImportTemplate(response);
     }
 
     @Operation(summary = "批量导入学生")
@@ -338,28 +307,26 @@ public class AdminController {
     @Operation(summary = "获取已删除学生列表(回收站)")
     @GetMapping("/student/recycle")
     public Result<List<Student>> getDeletedStudents() {
-        return Result.success(studentMapper.selectDeletedStudents());
+        return Result.success(adminAccountService.listDeletedStudents());
     }
 
     @Operation(summary = "恢复已删除学生")
     @LogRecord("恢复学生")
     @PostMapping("/student/restore")
     public Result<String> restoreStudent(@RequestParam String studentNo) {
-        studentMapper.restoreStudent(studentNo);
-        return Result.success("学生已成功恢复！");
+        return Result.success(adminAccountService.restoreStudent(studentNo));
     }
     
     @Operation(summary = "获取已删除教师列表(回收站)")
     @GetMapping("/teacher/recycle")
     public Result<List<Teacher>> getDeletedTeachers() {
-        return Result.success(teacherMapper.selectDeletedTeachers());
+        return Result.success(adminAccountService.listDeletedTeachers());
     }
 
     @Operation(summary = "恢复已删除教师")
     @LogRecord("恢复教师")
     @PostMapping("/teacher/restore")
     public Result<String> restoreTeacher(@RequestParam String workNo) {
-        teacherMapper.restoreTeacher(workNo);
-        return Result.success("教师已成功恢复！");
+        return Result.success(adminAccountService.restoreTeacher(workNo));
     }
 }

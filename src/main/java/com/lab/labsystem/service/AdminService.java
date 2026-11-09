@@ -6,6 +6,8 @@ import org.springframework.stereotype.Service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.lab.labsystem.entity.SysAdmin;
+import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.PasswordValidator;
 import com.lab.labsystem.mapper.SysAdminMapper;
 
 @Service
@@ -28,6 +30,11 @@ public class AdminService {
     }
 
     public boolean updatePassword(String oldPassword, String newPassword) {
+        String errorMsg = PasswordValidator.validate(newPassword);
+        if (errorMsg != null) {
+            throw new BusinessException(errorMsg);
+        }
+
         SysAdmin admin = adminMapper.selectOne(new QueryWrapper<SysAdmin>().eq("username", "admin"));
         if (admin != null && passwordEncoder.matches(oldPassword, admin.getPassword())) {
             // 存入新密码的哈希值
