@@ -2,18 +2,23 @@ package com.lab.labsystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.entity.ExpCourse;
+import com.lab.labsystem.entity.ExpSession;
 import com.lab.labsystem.entity.LabEquipment;
 import com.lab.labsystem.entity.LabRoom;
 import com.lab.labsystem.entity.SysLog;
 import com.lab.labsystem.entity.SysSemester;
+import com.lab.labsystem.entity.TeachClass;
 import com.lab.labsystem.mapper.ExpCourseMapper;
+import com.lab.labsystem.mapper.ExpSessionMapper;
 import com.lab.labsystem.mapper.LabEquipmentMapper;
 import com.lab.labsystem.mapper.LabRoomMapper;
 import com.lab.labsystem.mapper.SysLogMapper;
 import com.lab.labsystem.mapper.SysSemesterMapper;
+import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.service.AdminResourceService;
 import org.springframework.stereotype.Service;
 
@@ -30,6 +35,8 @@ public class AdminResourceServiceImpl implements AdminResourceService {
     private final LabEquipmentMapper equipMapper;
     private final SysSemesterMapper semesterMapper;
     private final SysLogMapper logMapper;
+    private final ExpSessionMapper sessionMapper;
+    private final TeachClassMapper teachClassMapper;
     private final NumberGenerator numberGenerator;
 
     public AdminResourceServiceImpl(LabRoomMapper labRoomMapper,
@@ -37,12 +44,16 @@ public class AdminResourceServiceImpl implements AdminResourceService {
                                     LabEquipmentMapper equipMapper,
                                     SysSemesterMapper semesterMapper,
                                     SysLogMapper logMapper,
+                                    ExpSessionMapper sessionMapper,
+                                    TeachClassMapper teachClassMapper,
                                     NumberGenerator numberGenerator) {
         this.labRoomMapper = labRoomMapper;
         this.courseMapper = courseMapper;
         this.equipMapper = equipMapper;
         this.semesterMapper = semesterMapper;
         this.logMapper = logMapper;
+        this.sessionMapper = sessionMapper;
+        this.teachClassMapper = teachClassMapper;
         this.numberGenerator = numberGenerator;
     }
 
@@ -63,6 +74,15 @@ public class AdminResourceServiceImpl implements AdminResourceService {
 
     @Override
     public void deleteLab(String roomNo) {
+        // 【引用检查】实验室被场次或设备引用时不允许删除
+        long sessions = sessionMapper.selectCount(new QueryWrapper<ExpSession>().eq("room_no", roomNo));
+        if (sessions > 0) {
+            throw new BusinessException("该实验室下还有 " + sessions + " 个实验场次，请先处理后再删除！");
+        }
+        long equipments = equipMapper.selectCount(new QueryWrapper<LabEquipment>().eq("room_no", roomNo));
+        if (equipments > 0) {
+            throw new BusinessException("该实验室下还有 " + equipments + " 台设备，请先处理后再删除！");
+        }
         labRoomMapper.deleteById(roomNo);
     }
 
@@ -83,6 +103,10 @@ public class AdminResourceServiceImpl implements AdminResourceService {
 
     @Override
     public void deleteCourse(String courseNo) {
+        long classes = teachClassMapper.selectCount(new QueryWrapper<TeachClass>().eq("course_no", courseNo));
+        if (classes > 0) {
+            throw new BusinessException("该课程已被 " + classes + " 个教学班使用，请先处理后再删除！");
+        }
         courseMapper.deleteById(courseNo);
     }
 
@@ -119,6 +143,15 @@ public class AdminResourceServiceImpl implements AdminResourceService {
 
     @Override
     public void deleteSemester(String semesterName) {
+        // 【引用检查】学期被教学班或场次引用时不允许删除
+        long classes = teachClassMapper.selectCount(new QueryWrapper<TeachClass>().eq("semester", semesterName));
+        if (classes > 0) {
+            throw new BusinessException("该学期已被 " + classes + " 个教学班使用，请先处理后再删除！");
+        }
+        long sessions = sessionMapper.selectCount(new QueryWrapper<ExpSession>().eq("semester", semesterName));
+        if (sessions > 0) {
+            throw new BusinessException("该学期下还有 " + sessions + " 个实验场次，请先处理后再删除！");
+        }
         semesterMapper.deleteById(semesterName);
     }
 

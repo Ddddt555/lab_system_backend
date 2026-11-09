@@ -1,13 +1,17 @@
 package com.lab.labsystem.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.entity.AdminClass;
 import com.lab.labsystem.entity.Department;
 import com.lab.labsystem.entity.Major;
+import com.lab.labsystem.entity.Student;
 import com.lab.labsystem.mapper.AdminClassMapper;
 import com.lab.labsystem.mapper.DepartmentMapper;
 import com.lab.labsystem.mapper.MajorMapper;
+import com.lab.labsystem.mapper.StudentMapper;
 import com.lab.labsystem.service.OrgService;
 import com.lab.labsystem.common.NumberGenerator;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +27,7 @@ public class OrgServiceImpl implements OrgService {
     @Autowired private MajorMapper majorMapper;
     @Autowired private AdminClassMapper adminClassMapper;
     @Autowired private DepartmentMapper departmentMapper;
+    @Autowired private StudentMapper studentMapper;
     @Autowired private NumberGenerator numberGenerator;
 
     private String buildAdminClassName(AdminClass ac) {
@@ -74,6 +79,12 @@ public class OrgServiceImpl implements OrgService {
 
     @Override
     public void deleteMajor(String majorNo) {
+        // 【引用检查】专业下还有行政班时不允许删除
+        long classes = adminClassMapper.selectCount(
+                new QueryWrapper<AdminClass>().eq("major_no", majorNo));
+        if (classes > 0) {
+            throw new BusinessException("该专业下还有 " + classes + " 个行政班，请先处理后再删除！");
+        }
         majorMapper.deleteById(majorNo);
     }
 
@@ -125,6 +136,11 @@ public class OrgServiceImpl implements OrgService {
 
     @Override
     public void deleteAdminClass(String adminClassNo) {
+        long students = studentMapper.selectCount(
+                new QueryWrapper<Student>().eq("admin_class_no", adminClassNo));
+        if (students > 0) {
+            throw new BusinessException("该行政班下还有 " + students + " 名学生，请先处理后再删除！");
+        }
         adminClassMapper.deleteById(adminClassNo);
     }
 }
