@@ -3,7 +3,10 @@ package com.lab.labsystem.service.impl;
 import com.alibaba.excel.EasyExcel;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.PageResult;
+import com.lab.labsystem.common.PasswordValidator;
+import com.lab.labsystem.service.MustChangePasswordCache;
 import com.lab.labsystem.entity.AdminClass;
 import com.lab.labsystem.entity.Department;
 import com.lab.labsystem.entity.Major;
@@ -20,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -34,6 +38,7 @@ public class StudentServiceImpl implements StudentService {
     @Autowired private DepartmentMapper departmentMapper;
     @Autowired private BCryptPasswordEncoder passwordEncoder;
     @Autowired private NumberGenerator numberGenerator;
+    @Autowired private MustChangePasswordCache mustChangePasswordCache;
 
     // 辅助方法搬进来
     private String buildAdminClassName(AdminClass ac) {
@@ -167,5 +172,27 @@ public class StudentServiceImpl implements StudentService {
             result.append("\n\n失败详情：\n").append(String.join("\n", errorMsgs));
         }
         return result.toString();
+    }
+    @Override
+    public String changePassword(String studentNo, String oldPwd, String newPwd) {
+        String errorMsg = PasswordValidator.validate(newPwd);
+        if (errorMsg != null) {
+            throw new BusinessException(errorMsg);
+        }
+
+        Student student = studentMapper.selectById(studentNo);
+        if (student == null || !passwordEncoder.matches(oldPwd, student.getPassword())) {
+            throw new BusinessException("原密码错误！");
+        }
+
+        student.setPassword(passwordEncoder.encode(newPwd));
+        student.setMustChangePassword(0);
+        student.setPwdUpdateTime(LocalDateTime.now());
+        studentMapper.updateById(student);
+
+        // 【缓存一致性】改密成功后清除强制改密缓存
+        mustChangePasswordCache.evict("student", studentNo);
+
+        return "密码修改成功，请重新登录！";
     }
 }
