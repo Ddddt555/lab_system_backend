@@ -1,19 +1,14 @@
 package com.lab.labsystem.controller;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.annotation.LogRecord;
 import com.lab.labsystem.annotation.RequireRole;
-import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.common.Result;
 import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
@@ -32,14 +27,8 @@ public class AdminController {
 
     @Autowired private com.lab.labsystem.service.AdminService adminService;
     @Autowired private com.lab.labsystem.service.AdminAccountService adminAccountService;
-    @Autowired private LabRoomMapper labRoomMapper;
-    @Autowired private ExpCourseMapper courseMapper;
-    @Autowired private SysLogMapper logMapper;
-    @Autowired private NumberGenerator numberGenerator;
-    @Autowired private LabEquipmentMapper equipMapper;
-    @Autowired private SysSemesterMapper semesterMapper;
-    @Autowired private DepartmentMapper departmentMapper;
-    @Autowired private TitleDictMapper titleDictMapper;
+    @Autowired private com.lab.labsystem.service.AdminDictService adminDictService;
+    @Autowired private com.lab.labsystem.service.AdminResourceService adminResourceService;
 
     @Autowired private StudentService studentService;
     @Autowired private TeacherService teacherService;
@@ -50,12 +39,7 @@ public class AdminController {
     @Operation(summary = "获取系统操作日志")
     @GetMapping("/logs")
     public Result<Object> getLogs(@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
-        QueryWrapper<SysLog> qw = new QueryWrapper<>();
-        qw.orderByDesc("create_time");
-        if (page != null && size != null) return Result.success(logMapper.selectPage(new Page<>(page, size), qw));
-        // 【安全加固】未传分页参数时默认返回第 1 页，不再整表返回。
-        // sys_log 是增长最快的表，原先不带 page/size 就能一次拉走全部数据。
-        return Result.success(logMapper.selectPage(new Page<>(1, 100), qw));
+        return Result.success(adminResourceService.listLogs(page, size));
     }
 
     // ========== 学生管理 ==========
@@ -170,37 +154,39 @@ public class AdminController {
     // ========== 以下为极简 CRUD，直接保留在 Controller ==========
     
     @GetMapping("/departments")
-    public Result<List<Department>> getDepartments() { return Result.success(departmentMapper.selectList(null)); }
+    public Result<List<Department>> getDepartments() {
+        return Result.success(adminDictService.listDepartments());
+    }
 
     @LogRecord("新增院系")
     @PostMapping("/department/add")
     public Result<String> addDepartment(@Valid @RequestBody Department dept) {
-        dept.setDeptNo(numberGenerator.generateDeptNo());
-        departmentMapper.insert(dept);
-        return Result.success("院系添加成功！院系号为：" + dept.getDeptNo());
+        return Result.success(adminDictService.addDepartment(dept));
     }
 
     @LogRecord("删除院系")
     @DeleteMapping("/department/delete")
     public Result<String> deleteDepartment(@RequestParam String deptNo) {
-        departmentMapper.deleteById(deptNo); return Result.success("院系已删除！");
+        adminDictService.deleteDepartment(deptNo);
+        return Result.success("院系已删除！");
     }
 
     @GetMapping("/titles")
-    public Result<List<TitleDict>> getTitles() { return Result.success(titleDictMapper.selectList(null)); }
+    public Result<List<TitleDict>> getTitles() {
+        return Result.success(adminDictService.listTitles());
+    }
 
     @LogRecord("新增职称")
     @PostMapping("/title/add")
     public Result<String> addTitle(@Valid @RequestBody TitleDict title) {
-        title.setTitleNo(numberGenerator.generateTitleNo());
-        titleDictMapper.insert(title);
-        return Result.success("职称添加成功！职称号为：" + title.getTitleNo());
+        return Result.success(adminDictService.addTitle(title));
     }
 
     @LogRecord("删除职称")
     @DeleteMapping("/title/delete")
     public Result<String> deleteTitle(@RequestParam String titleNo) {
-        titleDictMapper.deleteById(titleNo); return Result.success("职称已删除！");
+        adminDictService.deleteTitle(titleNo);
+        return Result.success("职称已删除！");
     }
 
     @LogRecord("重置用户密码")
@@ -219,77 +205,74 @@ public class AdminController {
 
     @GetMapping("/labs")
     public Result<Object> getAllLabs(@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
-        if (page != null && size != null) return Result.success(labRoomMapper.selectPage(new Page<>(page, size), null));
-        return Result.success(labRoomMapper.selectList(null));
+        return Result.success(adminResourceService.listLabs(page, size));
     }
 
     @LogRecord("新增实验室")
     @PostMapping("/lab/add")
-    public Result<String> addLab(@Valid @RequestBody LabRoom labRoom) { // 🛑 加上 @Valid
-        labRoom.setRoomNo(numberGenerator.generateRoomNo());
-        labRoomMapper.insert(labRoom);
-        return Result.success("实验室添加成功！实验室号为：" + labRoom.getRoomNo());
+    public Result<String> addLab(@Valid @RequestBody LabRoom labRoom) {
+        return Result.success(adminResourceService.addLab(labRoom));
     }
 
     @LogRecord("删除实验室")
     @DeleteMapping("/lab/delete")
     public Result<String> deleteLab(@RequestParam String roomNo) {
-        labRoomMapper.deleteById(roomNo); return Result.success("实验室已删除！");
+        adminResourceService.deleteLab(roomNo);
+        return Result.success("实验室已删除！");
     }
 
     @GetMapping("/courses")
     public Result<Object> getAllCourses(@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
-        if (page != null && size != null) return Result.success(courseMapper.selectPage(new Page<>(page, size), null));
-        return Result.success(courseMapper.selectList(null));
+        return Result.success(adminResourceService.listCourses(page, size));
     }
 
     @LogRecord("新增课程")
     @PostMapping("/course/add")
-    public Result<String> addCourse(@Valid @RequestBody ExpCourse course) { // 🛑 加上 @Valid
-        course.setCourseNo(numberGenerator.generateCourseNo());
-        courseMapper.insert(course);
-        return Result.success("课程添加成功！课程号为：" + course.getCourseNo());
+    public Result<String> addCourse(@Valid @RequestBody ExpCourse course) {
+        return Result.success(adminResourceService.addCourse(course));
     }
 
     @LogRecord("删除课程")
     @DeleteMapping("/course/delete")
     public Result<String> deleteCourse(@RequestParam String courseNo) {
-        courseMapper.deleteById(courseNo); return Result.success("课程已删除！");
+        adminResourceService.deleteCourse(courseNo);
+        return Result.success("课程已删除！");
     }
 
     @GetMapping("/equipments")
-    public Result<List<LabEquipment>> getAllEquipments() { return Result.success(equipMapper.selectList(null)); }
+    public Result<List<LabEquipment>> getAllEquipments() {
+        return Result.success(adminResourceService.listEquipments());
+    }
 
     @LogRecord("新增设备")
     @PostMapping("/equipment/add")
-    public Result<String> addEquipment(@Valid @RequestBody LabEquipment equip) { // 🛑 加上 @Valid
-        equip.setEquipNo(numberGenerator.generateEquipNo());
-        equipMapper.insert(equip);
-        return Result.success("设备添加成功！设备号为：" + equip.getEquipNo());
+    public Result<String> addEquipment(@Valid @RequestBody LabEquipment equip) {
+        return Result.success(adminResourceService.addEquipment(equip));
     }
 
     @LogRecord("删除设备")
     @DeleteMapping("/equipment/delete")
     public Result<String> deleteEquipment(@RequestParam String equipNo) {
-        equipMapper.deleteById(equipNo); return Result.success("设备已删除！");
+        adminResourceService.deleteEquipment(equipNo);
+        return Result.success("设备已删除！");
     }
 
     @GetMapping("/semesters")
     public Result<Object> getAllSemesters(@RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
-        if (page != null && size != null) return Result.success(semesterMapper.selectPage(new Page<>(page, size), null));
-        return Result.success(semesterMapper.selectList(null));
+        return Result.success(adminResourceService.listSemesters(page, size));
     }
 
     @LogRecord("新增学期")
     @PostMapping("/semester/add")
     public Result<String> addSemester(@Valid @RequestBody SysSemester semester) {
-        semesterMapper.insert(semester); return Result.success("学期添加成功！");
+        return Result.success(adminResourceService.addSemester(semester));
     }
 
     @LogRecord("删除学期")
     @DeleteMapping("/semester/delete")
     public Result<String> deleteSemester(@RequestParam String semesterName) {
-        semesterMapper.deleteById(semesterName); return Result.success("学期已删除！");
+        adminResourceService.deleteSemester(semesterName);
+        return Result.success("学期已删除！");
     }
 
     @GetMapping("/student/import-template")
