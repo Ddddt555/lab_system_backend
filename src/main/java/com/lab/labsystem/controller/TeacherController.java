@@ -37,6 +37,7 @@ import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
 import com.lab.labsystem.service.TeacherScoreService;
 import com.lab.labsystem.service.TeacherProjectService;
+import com.lab.labsystem.service.TeacherSessionService;
 import com.lab.labsystem.service.AttendanceService;
 import com.lab.labsystem.vo.SessionVO;
 import com.lab.labsystem.vo.StudentVO;
@@ -54,11 +55,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class TeacherController {
 
-    @Autowired private ExpProjectMapper projectMapper;
     @Autowired private LabRoomMapper labRoomMapper;
-    @Autowired private ExpSessionMapper sessionMapper;
-    @Autowired private StudentBookingMapper bookingMapper;
-    @Autowired private StudentMapper studentMapper;
     @Autowired private com.lab.labsystem.mapper.TeacherMapper teacherMapper;
     @Autowired private SysSemesterMapper semesterMapper;
     @Autowired private BCryptPasswordEncoder passwordEncoder;
@@ -66,9 +63,9 @@ public class TeacherController {
     @Autowired private ExpReportMapper reportMapper;
     @Autowired private ExpCourseMapper courseMapper;
     @Autowired private TeachClassMapper teachClassMapper;
-    @Autowired private com.lab.labsystem.common.NumberGenerator numberGenerator;
     @Autowired private TeacherScoreService teacherScoreService;
     @Autowired private TeacherProjectService teacherProjectService;
+    @Autowired private TeacherSessionService teacherSessionService;
     @Autowired private AttendanceService attendanceService;
 
     // ================= 0. 基础数据 =================
@@ -147,76 +144,7 @@ public class TeacherController {
     @PostMapping("/session/add")
     public Result<String> addSession(@RequestBody ExpSession session, HttpServletRequest request) {
         String currentWorkNo = (String) request.getAttribute("currentUserNo");
-        session.setWorkNo(currentWorkNo);
-
-        ExpProject project = projectMapper.selectById(session.getProjectNo());
-        if (project == null) return Result.error("实验项目不存在！");
-        TeachClass tc = teachClassMapper.selectById(project.getClassNo());
-        if (tc == null || !tc.getWorkNo().equals(currentWorkNo)) {
-            return Result.error("非法操作：您无权安排其他老师的实验项目！");
-        }
-
-        LabRoom room = labRoomMapper.selectById(session.getRoomNo());
-        if (room == null) return Result.error("实验室不存在！");
-        if (session.getCapacity() > room.getCapacity()) return Result.error("排课容量不能超过实验室容量！");
-
-        QueryWrapper<ExpSession> conflictQw = new QueryWrapper<ExpSession>()
-                .eq("semester", session.getSemester())
-                .eq("week_num", session.getWeekNum())
-                .eq("day_of_week", session.getDayOfWeek())
-                .eq("period", session.getPeriod());
-
-        List<ExpSession> existSessions = sessionMapper.selectList(conflictQw);
-        for (ExpSession exist : existSessions) {
-            if (exist.getWorkNo().equals(currentWorkNo)) {
-                return Result.error("排课失败：您在【第" + session.getWeekNum() + "周 "
-                        + getWeekDayName(session.getDayOfWeek()) + " " + session.getPeriod() + "】已有其他排课！");
-            }
-            if (exist.getRoomNo().equals(session.getRoomNo())) {
-                return Result.error("排课失败：实验室【" + room.getRoomName() + "】在【第"
-                        + session.getWeekNum() + "周 " + getWeekDayName(session.getDayOfWeek())
-                        + " " + session.getPeriod() + "】已被占用！");
-            }
-            ExpProject existProject = projectMapper.selectById(exist.getProjectNo());
-            if (existProject != null && existProject.getClassNo() != null
-                    && existProject.getClassNo().equals(project.getClassNo())) {
-                return Result.error("排课失败：该教学班在此时段已经有排课了！");
-            }
-        }
-
-        session.setSessionNo(numberGenerator.generateSessionNo());
-        LocalDateTime absoluteTime = calculateAbsoluteTime(
-                session.getSemester(), session.getWeekNum(),
-                session.getDayOfWeek(), session.getPeriod());
-        session.setSessionTime(absoluteTime);
-        session.setRemainingSeats(session.getCapacity());
-
-        sessionMapper.insert(session);
-        return Result.success("场次安排成功！场次号为：" + session.getSessionNo());
-    }
-
-    private String getWeekDayName(Integer dayOfWeek) {
-        String[] days = {"", "周一", "周二", "周三", "周四", "周五", "周六", "周日"};
-        if (dayOfWeek != null && dayOfWeek >= 1 && dayOfWeek <= 7) return days[dayOfWeek];
-        return "未知";
-    }
-
-    private LocalDateTime calculateAbsoluteTime(String semesterName, Integer weekNum,
-                                                Integer dayOfWeek, String period) {
-        SysSemester semester = semesterMapper.selectById(semesterName);
-        if (semester == null) throw new RuntimeException("排课失败：该学期配置不存在！");
-        LocalDate targetDate = semester.getStartDate()
-                .plusWeeks(weekNum - 1).plusDays(dayOfWeek - 1);
-        LocalTime targetTime;
-        switch (period) {
-            case "1-2节": targetTime = LocalTime.of(8, 0); break;
-            case "3-4节": targetTime = LocalTime.of(10, 0); break;
-            case "5-6节": targetTime = LocalTime.of(14, 0); break;
-            case "7-8节": targetTime = LocalTime.of(16, 0); break;
-            case "9-10节": targetTime = LocalTime.of(19, 0); break;
-            default: targetTime = LocalTime.of(8, 0);
-        }
-        return LocalDateTime.of(targetDate, targetTime);
+        return Result.success(teacherSessionService.addSession(session, currentWorkNo));
     }
 
     @Operation(summary = "获取我负责的实验场次列表")
@@ -226,44 +154,7 @@ public class TeacherController {
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
         String workNo = (String) request.getAttribute("currentUserNo");
-        QueryWrapper<ExpSession> qw = new QueryWrapper<ExpSession>().eq("work_no", workNo).orderByAsc("session_time");
-
-        List<ExpSession> sessionList;
-        long total = 0;
-        if (page != null && size != null) {
-            Page<ExpSession> sessionPage = sessionMapper.selectPage(new Page<>(page, size), qw);
-            sessionList = sessionPage.getRecords();
-            total = sessionPage.getTotal();
-        } else {
-            sessionList = QueryLimits.list(sessionMapper, qw);
-        }
-
-        if (sessionList.isEmpty()) {
-            if (page != null && size != null) return Result.success(new PageResult<>(0, new ArrayList<>()));
-            return Result.success(new ArrayList<>());
-        }
-
-        // 🛑【核心优化】批量查询项目，消灭 N+1
-        List<String> projectNos = sessionList.stream().map(ExpSession::getProjectNo).filter(Objects::nonNull).distinct().collect(Collectors.toList());
-        Map<String, ExpProject> projectMap = projectNos.isEmpty() ? new HashMap<>() :
-                projectMapper.selectBatchIds(projectNos).stream()
-                        .collect(Collectors.toMap(ExpProject::getProjectNo, p -> p, (k1, k2) -> k1));
-
-        List<SessionVO> resultList = new ArrayList<>();
-        for (ExpSession session : sessionList) {
-            SessionVO vo = new SessionVO();
-            BeanUtils.copyProperties(session, vo);
-            if (session.getProjectNo() != null) {
-                ExpProject project = projectMap.get(session.getProjectNo());
-                if (project != null) {
-                    vo.setProjectName(project.getProjectName());
-                    vo.setGuideFile(project.getGuideFile());
-                }
-            }
-            resultList.add(vo);
-        }
-        if (page != null && size != null) return Result.success(new PageResult<>(total, resultList));
-        return Result.success(resultList);
+        return Result.success(teacherSessionService.listMySessions(workNo, page, size));
     }
 
     // ================= 3. 查看名单 =================
@@ -272,31 +163,7 @@ public class TeacherController {
     public Result<List<StudentVO>> getSessionBookings(@RequestParam String sessionNo,
                                                       HttpServletRequest request) {
         String currentWorkNo = (String) request.getAttribute("currentUserNo");
-        ExpSession session = sessionMapper.selectById(sessionNo);
-        if (session == null || !session.getWorkNo().equals(currentWorkNo))
-            return Result.error("非法操作：您无权查看！");
-
-        List<StudentBooking> bookings = bookingMapper.selectList(
-                new QueryWrapper<StudentBooking>().eq("session_no", sessionNo).eq("status", 1));
-        
-        if (bookings.isEmpty()) return Result.success(new ArrayList<>());
-
-        // 🛑【核心优化】批量查询学生信息，消灭 N+1
-        List<String> studentNos = bookings.stream().map(StudentBooking::getStudentNo).distinct().collect(Collectors.toList());
-        Map<String, Student> studentMap = studentMapper.selectBatchIds(studentNos).stream()
-                .collect(Collectors.toMap(Student::getStudentNo, s -> s, (k1, k2) -> k1));
-
-        List<StudentVO> resultList = new ArrayList<>();
-        for (StudentBooking booking : bookings) {
-            Student student = studentMap.get(booking.getStudentNo());
-            if (student != null) {
-                StudentVO vo = new StudentVO();
-                BeanUtils.copyProperties(student, vo);
-                vo.setBookingTime(booking.getBookingTime());
-                resultList.add(vo);
-            }
-        }
-        return Result.success(resultList);
+        return Result.success(teacherSessionService.listSessionBookings(sessionNo, currentWorkNo));
     }
 
     @Operation(summary = "取消排课")
@@ -304,11 +171,7 @@ public class TeacherController {
     @DeleteMapping("/session/delete")
     public Result<String> deleteSession(@RequestParam String sessionNo, HttpServletRequest request) {
         String currentWorkNo = (String) request.getAttribute("currentUserNo");
-        ExpSession session = sessionMapper.selectById(sessionNo);
-        if (session == null || !session.getWorkNo().equals(currentWorkNo)) return Result.error("非法操作！");
-        
-        sessionMapper.deleteById(sessionNo);
-        return Result.success("取消排课成功！");
+        return Result.success(teacherSessionService.deleteSession(sessionNo, currentWorkNo));
     }
 
     // ================= 4. 成绩管理 =================
