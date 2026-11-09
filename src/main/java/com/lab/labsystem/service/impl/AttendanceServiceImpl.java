@@ -1,7 +1,7 @@
 package com.lab.labsystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.lab.labsystem.controller.AttendanceWebSocket;
+import com.lab.labsystem.websocket.AttendanceWebSocket;
 import com.lab.labsystem.dto.AttendanceExportDTO;
 import com.lab.labsystem.entity.AttendanceRecord;
 import com.lab.labsystem.entity.ExpProject;

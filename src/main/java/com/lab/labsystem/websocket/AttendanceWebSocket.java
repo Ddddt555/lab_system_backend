@@ -1,4 +1,4 @@
-package com.lab.labsystem.controller;
+package com.lab.labsystem.websocket;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.lab.labsystem.config.RedisPubSubConfig;

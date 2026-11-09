@@ -1,7 +1,7 @@
 package com.lab.labsystem.config;
 
-import com.lab.labsystem.controller.AttendanceWebSocket;
-import com.lab.labsystem.controller.GlobalWebSocket;
+import com.lab.labsystem.websocket.AttendanceWebSocket;
+import com.lab.labsystem.websocket.GlobalWebSocket;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
