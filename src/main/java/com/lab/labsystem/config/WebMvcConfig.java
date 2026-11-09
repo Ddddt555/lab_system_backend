@@ -1,8 +1,6 @@
 package com.lab.labsystem.config;
 
-import com.lab.labsystem.mapper.StudentMapper;
-import com.lab.labsystem.mapper.SysAdminMapper;
-import com.lab.labsystem.mapper.TeacherMapper;
+import com.lab.labsystem.service.MustChangePasswordCache;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -15,14 +13,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
-    
-    // 🛑 注入三个 Mapper，供拦截器查库使用
+
+    // 强制改密标记的缓存（替代原先在拦截器里直接查三张表）
     @Autowired
-    private StudentMapper studentMapper;
-    @Autowired
-    private TeacherMapper teacherMapper;
-    @Autowired
-    private SysAdminMapper sysAdminMapper;
+    private MustChangePasswordCache mustChangePasswordCache;
 
     @Override
     public void addViewControllers(ViewControllerRegistry registry) {
@@ -34,7 +28,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         // 1. JWT 鉴权拦截器
-        registry.addInterceptor(new JwtInterceptor(stringRedisTemplate, studentMapper, teacherMapper, sysAdminMapper))
+        registry.addInterceptor(new JwtInterceptor(stringRedisTemplate, mustChangePasswordCache))
                 .addPathPatterns("/api/**") // ⚠️ 拦截所有 API
                 .excludePathPatterns("/api/login/**")
                 .excludePathPatterns("/api/captcha")

@@ -36,6 +36,7 @@ public class AdminController {
     @Autowired private LabRoomMapper labRoomMapper;
     @Autowired private ExpCourseMapper courseMapper;
     @Autowired private BCryptPasswordEncoder passwordEncoder;
+    @Autowired private com.lab.labsystem.service.MustChangePasswordCache mustChangePasswordCache;
     @Autowired private SysLogMapper logMapper;
     @Autowired private NumberGenerator numberGenerator;
     @Autowired private LabEquipmentMapper equipMapper;
@@ -219,6 +220,8 @@ public class AdminController {
             student.setMustChangePassword(1);
             student.setPwdUpdateTime(LocalDateTime.now());
             studentMapper.updateById(student);
+            // 【缓存一致性】重置密码后需让缓存立即失效，否则最多 60 秒内仍被判定为"无需改密"
+            mustChangePasswordCache.evict("student", account);
             
         } else if ("teacher".equals(role)) {
             Teacher teacher = teacherMapper.selectById(account);
@@ -228,6 +231,8 @@ public class AdminController {
             teacher.setMustChangePassword(1);
             teacher.setPwdUpdateTime(LocalDateTime.now());
             teacherMapper.updateById(teacher);
+            // 【缓存一致性】同上
+            mustChangePasswordCache.evict("teacher", account);
             
         } else { 
             return Result.error("不支持的角色！"); 

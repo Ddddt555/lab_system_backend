@@ -16,6 +16,8 @@ public class AdminService {
 
     @Autowired
     private BCryptPasswordEncoder passwordEncoder; // 注入
+    @Autowired
+    private MustChangePasswordCache mustChangePasswordCache;
 
     public boolean checkLogin(String username, String password) {
         QueryWrapper<SysAdmin> qw = new QueryWrapper<>();
@@ -36,6 +38,8 @@ public class AdminService {
             admin.setPwdUpdateTime(java.time.LocalDateTime.now());
             
             adminMapper.updateById(admin);
+            // 【缓存一致性】改密成功后清除强制改密缓存
+            mustChangePasswordCache.evict("admin", admin.getUsername());
             return true;
         }
         return false;
