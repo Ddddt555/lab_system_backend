@@ -8,12 +8,16 @@ import com.lab.labsystem.entity.TitleDict;
 import com.lab.labsystem.mapper.DepartmentMapper;
 import com.lab.labsystem.mapper.TeacherMapper;
 import com.lab.labsystem.mapper.TitleDictMapper;
+import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.PasswordValidator;
+import com.lab.labsystem.service.MustChangePasswordCache;
 import com.lab.labsystem.service.TeacherService;
 import com.lab.labsystem.common.NumberGenerator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -26,6 +30,7 @@ public class TeacherServiceImpl implements TeacherService {
     @Autowired private TitleDictMapper titleDictMapper;
     @Autowired private BCryptPasswordEncoder passwordEncoder;
     @Autowired private NumberGenerator numberGenerator;
+    @Autowired private MustChangePasswordCache mustChangePasswordCache;
 
     @Override
     public Object getTeacherList(Integer page, Integer size) {
@@ -85,4 +90,26 @@ public class TeacherServiceImpl implements TeacherService {
         teacherMapper.deleteById(workNo);
     }
     
+    @Override
+    public String changePassword(String workNo, String oldPwd, String newPwd) {
+        String errorMsg = PasswordValidator.validate(newPwd);
+        if (errorMsg != null) {
+            throw new BusinessException(errorMsg);
+        }
+
+        Teacher teacher = teacherMapper.selectById(workNo);
+        if (teacher == null || !passwordEncoder.matches(oldPwd, teacher.getPassword())) {
+            throw new BusinessException("原密码错误！");
+        }
+
+        teacher.setPassword(passwordEncoder.encode(newPwd));
+        teacher.setMustChangePassword(0);
+        teacher.setPwdUpdateTime(LocalDateTime.now());
+        teacherMapper.updateById(teacher);
+
+        // 【缓存一致性】改密成功后清除强制改密缓存
+        mustChangePasswordCache.evict("teacher", workNo);
+
+        return "密码修改成功！";
+    }
 }
