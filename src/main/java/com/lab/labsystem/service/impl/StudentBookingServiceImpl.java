@@ -2,7 +2,7 @@ package com.lab.labsystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
-import com.lab.labsystem.controller.GlobalWebSocket;
+import com.lab.labsystem.websocket.GlobalWebSocket;
 import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
 import com.lab.labsystem.service.StudentBookingService;
