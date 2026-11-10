@@ -1,7 +1,6 @@
 package com.lab.labsystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
 import com.lab.labsystem.service.TeacherScoreService;
@@ -22,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import com.lab.labsystem.common.BatchOperations;
 import com.lab.labsystem.common.BusinessException;
 
 @Service
@@ -34,6 +34,7 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
     @Autowired private ExpReportMapper reportMapper;
     @Autowired private ExpScoreMapper scoreMapper;
     @Autowired private TeachClassMapper teachClassMapper;
+    @Autowired private BatchOperations batchOperations;
 
     // 动态计算总评的私有方法
     private double calculateTotal(double dailyScore, double reportScore, TeachClass tc) {
@@ -253,8 +254,8 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
         }
         
         if (!updateList.isEmpty()) {
-            // 使用 MyBatis-Plus 的 Db 工具类进行批量更新
-            Db.updateBatchById(updateList);
+            // 批量更新（通过适配层，便于单元测试验证）
+            batchOperations.updateBatchById(updateList);
         }
         
         return "权重修改成功，已自动重算 " + updateList.size() + " 名学生的成绩！";
