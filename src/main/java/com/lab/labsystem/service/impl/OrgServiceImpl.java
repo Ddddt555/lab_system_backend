@@ -119,15 +119,15 @@ public class OrgServiceImpl implements OrgService {
     @Override
     public String addAdminClass(AdminClass adminClass) {
         if (adminClass.getMajorNo() == null || adminClass.getEnrollmentYear() == null || adminClass.getClassSeq() == null) {
-            throw new RuntimeException("专业、入学年份、班级序号不能为空！");
+            throw new BusinessException("专业、入学年份、班级序号不能为空！");
         }
         Major major = majorMapper.selectById(adminClass.getMajorNo());
-        if (major == null) throw new RuntimeException("所选专业不存在！");
+        if (major == null) throw new BusinessException("所选专业不存在！");
         String deptNo = major.getDeptNo();
 
         String newClassNo = numberGenerator.generateAdminClassNo(adminClass.getEnrollmentYear(), deptNo, adminClass.getMajorNo(), adminClass.getClassSeq());
         if (adminClassMapper.selectById(newClassNo) != null) {
-            throw new RuntimeException("该班级已存在，请检查年份、专业和序号！");
+            throw new BusinessException("该班级已存在，请检查年份、专业和序号！");
         }
         adminClass.setAdminClassNo(newClassNo);
         adminClassMapper.insert(adminClass);

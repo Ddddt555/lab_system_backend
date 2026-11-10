@@ -136,15 +136,15 @@ public class StudentServiceImpl implements StudentService {
             try {
                 // 1. 基础校验：姓名
                 if (dto.getName() == null || dto.getName().trim().isEmpty()) {
-                    throw new RuntimeException("姓名不能为空");
+                    throw new BusinessException("姓名不能为空");
                 }
                 // 2. 基础校验：行政班
                 if (dto.getAdminClassNo() == null || dto.getAdminClassNo().trim().isEmpty()) {
-                    throw new RuntimeException("行政班号不能为空");
+                    throw new BusinessException("行政班号不能为空");
                 }
                 // 3. 业务校验：行政班必须存在
                 if (adminClassMapper.selectById(dto.getAdminClassNo()) == null) {
-                    throw new RuntimeException("行政班号 [" + dto.getAdminClassNo() + "] 不存在");
+                    throw new BusinessException("行政班号 [" + dto.getAdminClassNo() + "] 不存在");
                 }
 
                 Student student = new Student();
