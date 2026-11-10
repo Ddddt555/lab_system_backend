@@ -14,9 +14,14 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
@@ -47,6 +52,7 @@ class AuthServiceImplTest {
     private CaptchaService captchaService;
     private StringRedisTemplate redis;
     private ValueOperations<String, String> ops;
+    private Environment environment;
     private AuthServiceImpl service;
 
     @BeforeAll
@@ -69,6 +75,10 @@ class AuthServiceImplTest {
         ops = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(ops);
 
+        // 显式声明"当前不是 prod"，避免 mock 默认 false 造成假绿
+        environment = mock(Environment.class);
+        when(environment.acceptsProfiles(any(Profiles.class))).thenReturn(false);
+
         service = new AuthServiceImpl(
                 studentMapper,
                 mock(TeacherMapper.class),
@@ -78,7 +88,7 @@ class AuthServiceImplTest {
                 mock(SysLogMapper.class),
                 captchaService,
                 redis,
-        		mock(org.springframework.core.env.Environment.class)); 
+                environment);
     }
 
     private static HttpServletRequest request() {
@@ -236,6 +246,39 @@ class AuthServiceImplTest {
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.issueWsTicket(null, null));
         assertEquals("未登录，无法获取票据", e.getMessage());
+    }
+
+    @Test
+    @DisplayName("prod 环境下拒绝测试登录")
+    void rejectTestLoginInProd() {
+        when(environment.acceptsProfiles(any(Profiles.class))).thenReturn(true);
+
+        ResponseStatusException e = assertThrows(ResponseStatusException.class,
+                () -> service.testLogin("S001", "student", request()));
+
+        assertEquals(HttpStatus.NOT_FOUND, e.getStatusCode());
+    }
+
+    @Test
+    @DisplayName("未开启 test-login 时拒绝测试登录")
+    void rejectTestLoginWhenDisabled() {
+        ReflectionTestUtils.setField(service, "testLoginEnabled", false);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.testLogin("S001", "student", request()));
+
+        assertEquals("【测试接口已禁用】请勿在生产环境尝试非法登录！", e.getMessage());
+    }
+
+    @Test
+    @DisplayName("非法角色被拒绝")
+    void rejectTestLoginWithUnknownRole() {
+        ReflectionTestUtils.setField(service, "testLoginEnabled", true);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.testLogin("X1", "guest", request()));
+
+        assertEquals("非法的角色类型！", e.getMessage());
     }
 
     private void setEncoder(BCryptPasswordEncoder encoder) {
