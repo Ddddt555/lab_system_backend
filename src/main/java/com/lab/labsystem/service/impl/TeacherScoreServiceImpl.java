@@ -1,6 +1,7 @@
 package com.lab.labsystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
 import com.lab.labsystem.service.TeacherScoreService;
@@ -63,7 +64,7 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
         TeachClass tc = teachClassMapper.selectById(classNo);
         double totalScore = calculateTotal(dailyScore, avgReportScore, tc);
 
-        // ⚠️ 步骤 8 改造：Upsert 策略（先更新，失败则插入）
+        // Upsert 策略（先更新，失败则插入）
         ExpScore updateEntity = new ExpScore();
         updateEntity.setDailyScore(dailyScore);
         updateEntity.setReportScore(avgReportScore);
@@ -76,7 +77,7 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
         int rows = scoreMapper.update(updateEntity, updateWrapper);
 
         if (rows == 0) {
-        	// 🛑【核心修复】在插入新成绩前，先物理删除之前被逻辑删除的旧记录，腾出唯一键的位置
+            // 在插入新成绩前，先物理删除之前被逻辑删除的旧记录，腾出唯一键的位置
             scoreMapper.deleteOldSoftDeletedScores(studentNo, classNo);
             // 没更新到，说明记录不存在，执行插入
             ExpScore newScore = new ExpScore();
@@ -89,7 +90,7 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
             try {
                 scoreMapper.insert(newScore);
             } catch (org.springframework.dao.DuplicateKeyException e) {
-                // ⚠️ 兜底：如果并发导致被别人抢先插入了，再执行一次更新
+                // 兜底：如果并发导致被别人抢先插入了，再执行一次更新
                 scoreMapper.update(updateEntity, updateWrapper);
             }
         }
@@ -97,7 +98,7 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
         return "总评已算好: " + String.format("%.1f", totalScore) + " 分";
     }
 
-    // ⚠️ 新增：教师批阅报告后，自动重算该学生的报告均分和总评
+    // 教师批阅报告后，自动重算该学生的报告均分和总评
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void recalculateAfterGrade(String studentNo, String classNo) {
@@ -137,7 +138,7 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
         }
     }
 
-    // ⚠️ 核心修改：动态表头导出
+    // 动态表头导出
     @Override
     public void exportScores(String currentWorkNo, String classNo, HttpServletResponse response) throws IOException {
         // 1. 获取该班级动态配置的权重
@@ -184,9 +185,17 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
         }
         Set<String> studentNos = bookings.stream().map(StudentBooking::getStudentNo).collect(Collectors.toSet());
 
-        // 4. 组装数据
+        // 4. 批量查询学生和成绩，消除 N+1
+        Map<String, Student> studentMap = studentMapper.selectBatchIds(studentNos).stream()
+                .collect(Collectors.toMap(Student::getStudentNo, s -> s));
+
+        Map<String, ExpScore> scoreMap = scoreMapper.selectList(
+                new QueryWrapper<ExpScore>().eq("class_no", classNo).in("student_no", studentNos))
+                .stream().collect(Collectors.toMap(ExpScore::getStudentNo, s -> s));
+
+        // 5. 组装数据
         for (String sNo : studentNos) {
-            Student student = studentMapper.selectById(sNo);
+            Student student = studentMap.get(sNo);
             if (student == null) continue;
 
             List<Object> row = new ArrayList<>();
@@ -194,7 +203,7 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
             row.add(student.getName());
             row.add(student.getAdminClassNo() != null ? student.getAdminClassNo() : "未分班");
 
-            ExpScore score = scoreMapper.selectOne(new QueryWrapper<ExpScore>().eq("student_no", sNo).eq("class_no", classNo));
+            ExpScore score = scoreMap.get(sNo);
             if (score != null) {
                 row.add(score.getDailyScore());
                 row.add(score.getReportScore());
@@ -205,7 +214,7 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
             dataList.add(row);
         }
 
-        // 5. 写入动态表头和数据
+        // 6. 写入动态表头和数据
         com.alibaba.excel.EasyExcel.write(response.getOutputStream())
                 .head(head)
                 .sheet("成绩单")
@@ -233,17 +242,24 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
         List<ExpScore> scores = scoreMapper.selectList(
                 new QueryWrapper<ExpScore>().eq("class_no", classNo));
         
-        int count = 0;
+        // 解决写放大：收集需要更新的对象，最后一次性批量提交
+        List<ExpScore> updateList = new ArrayList<>();
         for (ExpScore score : scores) {
             if (score.getDailyScore() != null && score.getReportScore() != null) {
                 double newTotal = calculateTotal(score.getDailyScore(), score.getReportScore(), tc);
                 score.setTotalScore(newTotal);
-                scoreMapper.updateById(score);
-                count++;
+                updateList.add(score);
             }
         }
-        return "权重修改成功，已自动重算 " + count + " 名学生的成绩！";
+        
+        if (!updateList.isEmpty()) {
+            // 使用 MyBatis-Plus 的 Db 工具类进行批量更新
+            Db.updateBatchById(updateList);
+        }
+        
+        return "权重修改成功，已自动重算 " + updateList.size() + " 名学生的成绩！";
     }
+    
     @Override
     public Object getCourseScores(String currentWorkNo, String classNo, Integer page, Integer size) {
         List<ExpProject> projects = projectMapper.selectList(

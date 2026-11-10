@@ -35,6 +35,7 @@ import java.net.URLEncoder;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -72,13 +73,27 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         List<AttendanceRecord> records = attendanceMapper.selectList(
                 new QueryWrapper<AttendanceRecord>().eq("session_no", sessionNo));
+        
+        if (records.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 批量查询学生信息
+        List<String> studentNos = records.stream()
+                .map(AttendanceRecord::getStudentNo)
+                .distinct()
+                .collect(Collectors.toList());
+
+        Map<String, Student> studentMap = studentNos.isEmpty() ? new HashMap<>() :
+                studentMapper.selectBatchIds(studentNos).stream()
+                        .collect(Collectors.toMap(Student::getStudentNo, s -> s, (k1, k2) -> k1));
 
         List<StudentVO> resultList = new ArrayList<>();
         for (AttendanceRecord record : records) {
             StudentVO vo = new StudentVO();
             vo.setStudentNo(record.getStudentNo());
             vo.setBookingTime(record.getSignTime());
-            Student student = studentMapper.selectById(record.getStudentNo());
+            Student student = studentMap.get(record.getStudentNo());
             vo.setName(student != null ? student.getName() : "未知学生");
             resultList.add(vo);
         }
@@ -145,9 +160,19 @@ public class AttendanceServiceImpl implements AttendanceService {
         List<StudentBooking> bookings = bookingMapper.selectList(
                 new QueryWrapper<StudentBooking>().eq("session_no", sessionNo).eq("status", 1));
         
+        // 批量查询学生信息
+        List<String> bookingStudentNos = bookings.stream()
+                .map(StudentBooking::getStudentNo)
+                .distinct()
+                .collect(Collectors.toList());
+
+        Map<String, Student> studentMap = bookingStudentNos.isEmpty() ? new HashMap<>() :
+                studentMapper.selectBatchIds(bookingStudentNos).stream()
+                        .collect(Collectors.toMap(Student::getStudentNo, s -> s, (k1, k2) -> k1));
+        
         List<AttendanceExportDTO> exportList = new ArrayList<>();
         for (StudentBooking b : bookings) {
-            Student student = studentMapper.selectById(b.getStudentNo());
+            Student student = studentMap.get(b.getStudentNo());
             if (student == null) continue;
 
             AttendanceExportDTO dto = new AttendanceExportDTO();
@@ -165,7 +190,7 @@ public class AttendanceServiceImpl implements AttendanceService {
             exportList.add(dto);
         }
 
-        // ⚠️ 核心修改：使用原生 POI 构建，彻底杜绝合并单元格冲突导致的 Excel 弹窗
+        // 使用原生 POI 构建，避免合并单元格冲突导致 Excel 弹窗
         Workbook workbook = new XSSFWorkbook();
         Sheet sheet = workbook.createSheet("考勤记录");
         

@@ -21,6 +21,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Service
 public class OrgServiceImpl implements OrgService {
@@ -30,14 +32,13 @@ public class OrgServiceImpl implements OrgService {
     @Autowired private StudentMapper studentMapper;
     @Autowired private NumberGenerator numberGenerator;
 
-    private String buildAdminClassName(AdminClass ac) {
+    // 辅助方法：去除了查库逻辑，完全依赖传入的对象
+    private String buildAdminClassName(AdminClass ac, Major major, Department dept) {
         if (ac == null) return "未分配";
-        Major major = majorMapper.selectById(ac.getMajorNo());
         String majorName = major != null ? major.getMajorName() : "未知专业";
         String deptName = "";
-        if (major != null && major.getDeptNo() != null) {
-            Department dept = departmentMapper.selectById(major.getDeptNo());
-            if (dept != null) deptName = dept.getDeptName() + "-";
+        if (dept != null) {
+            deptName = dept.getDeptName() + "-";
         }
         String yearStr = ac.getEnrollmentYear() != null ? String.valueOf(ac.getEnrollmentYear()).substring(2) : "00";
         String seqStr = ac.getClassSeq() != null ? String.format("%02d", ac.getClassSeq()) : "00";
@@ -56,18 +57,32 @@ public class OrgServiceImpl implements OrgService {
             majors = majorMapper.selectList(null);
         }
 
+        if (majors.isEmpty()) {
+            return (page != null && size != null) ? new PageResult<>(total, new ArrayList<>()) : new ArrayList<>();
+        }
+
+        // 批量查询院系
+        List<String> deptNos = majors.stream()
+                .map(Major::getDeptNo)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        Map<String, Department> deptMap = deptNos.isEmpty() ? new HashMap<>() :
+                departmentMapper.selectBatchIds(deptNos).stream()
+                        .collect(Collectors.toMap(Department::getDeptNo, d -> d, (k1, k2) -> k1));
+
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (Major m : majors) {
             Map<String, Object> map = new HashMap<>();
             map.put("majorNo", m.getMajorNo());
             map.put("majorName", m.getMajorName());
             map.put("deptNo", m.getDeptNo());
-            Department dept = departmentMapper.selectById(m.getDeptNo());
+            Department dept = deptMap.get(m.getDeptNo());
             map.put("deptName", dept != null ? dept.getDeptName() : "未分配");
             resultList.add(map);
         }
-        if (page != null && size != null) return new PageResult<>(total, resultList);
-        return resultList;
+        return (page != null && size != null) ? new PageResult<>(total, resultList) : resultList;
     }
 
     @Override
@@ -79,7 +94,7 @@ public class OrgServiceImpl implements OrgService {
 
     @Override
     public void deleteMajor(String majorNo) {
-        // 【引用检查】专业下还有行政班时不允许删除
+        // 引用检查：专业下还有行政班时不允许删除
         long classes = adminClassMapper.selectCount(
                 new QueryWrapper<AdminClass>().eq("major_no", majorNo));
         if (classes > 0) {
@@ -100,6 +115,33 @@ public class OrgServiceImpl implements OrgService {
             classes = adminClassMapper.selectList(null);
         }
 
+        if (classes.isEmpty()) {
+            return (page != null && size != null) ? new PageResult<>(total, new ArrayList<>()) : new ArrayList<>();
+        }
+
+        // 1. 批量查询专业
+        List<String> majorNos = classes.stream()
+                .map(AdminClass::getMajorNo)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        Map<String, Major> majorMap = majorNos.isEmpty() ? new HashMap<>() :
+                majorMapper.selectBatchIds(majorNos).stream()
+                        .collect(Collectors.toMap(Major::getMajorNo, m -> m, (k1, k2) -> k1));
+
+        // 2. 批量查询院系
+        List<String> deptNos = majorMap.values().stream()
+                .map(Major::getDeptNo)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        Map<String, Department> deptMap = deptNos.isEmpty() ? new HashMap<>() :
+                departmentMapper.selectBatchIds(deptNos).stream()
+                        .collect(Collectors.toMap(Department::getDeptNo, d -> d, (k1, k2) -> k1));
+
+        // 3. 组装数据
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (AdminClass ac : classes) {
             Map<String, Object> map = new HashMap<>();
@@ -107,13 +149,16 @@ public class OrgServiceImpl implements OrgService {
             map.put("majorNo", ac.getMajorNo());
             map.put("enrollmentYear", ac.getEnrollmentYear());
             map.put("classSeq", ac.getClassSeq());
-            Major major = majorMapper.selectById(ac.getMajorNo());
+
+            Major major = majorMap.get(ac.getMajorNo());
             map.put("majorName", major != null ? major.getMajorName() : "未知专业");
-            map.put("adminClassName", buildAdminClassName(ac));
+
+            Department dept = major != null ? deptMap.get(major.getDeptNo()) : null;
+            map.put("adminClassName", buildAdminClassName(ac, major, dept));
+            
             resultList.add(map);
         }
-        if (page != null && size != null) return new PageResult<>(total, resultList);
-        return resultList;
+        return (page != null && size != null) ? new PageResult<>(total, resultList) : resultList;
     }
 
     @Override

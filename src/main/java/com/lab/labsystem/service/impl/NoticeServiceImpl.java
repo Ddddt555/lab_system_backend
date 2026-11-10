@@ -1,6 +1,7 @@
 package com.lab.labsystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.toolkit.Db;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.websocket.GlobalWebSocket;
 import com.lab.labsystem.entity.SysNotice;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -27,7 +29,7 @@ import java.util.stream.Collectors;
 @Service
 public class NoticeServiceImpl implements NoticeService {
 
-    /** 允许的 target_role 白名单 */
+    // 允许的 target_role 白名单
     private static final Set<String> ALLOWED_TARGET_ROLES =
             Collections.unmodifiableSet(new HashSet<>(Arrays.asList("all", "student", "teacher")));
 
@@ -110,28 +112,31 @@ public class NoticeServiceImpl implements NoticeService {
         List<SysNotice> notices = QueryLimits.list(noticeMapper, visibleNoticesQuery(role, false));
         Set<String> readIds = readIdsOf(userNo);
 
-        int count = 0;
+        // 解决写放大：收集需要插入的记录，最后批量提交
+        List<SysNoticeRead> readList = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+        
         for (SysNotice notice : notices) {
             if (!readIds.contains(notice.getNoticeId())) {
                 SysNoticeRead read = new SysNoticeRead();
                 read.setNoticeId(notice.getNoticeId());
                 read.setUserNo(userNo);
-                read.setReadTime(LocalDateTime.now());
-                noticeReadMapper.insert(read);
-                count++;
+                read.setReadTime(now);
+                readList.add(read);
             }
         }
-        return count;
+        
+        if (!readList.isEmpty()) {
+            // 使用 MyBatis-Plus 的 Db 工具类进行批量插入
+            Db.saveBatch(readList);
+        }
+        
+        return readList.size();
     }
 
     /**
-     * 构造“当前角色可见”的通知查询条件。
+     * 构造当前角色可见的通知查询条件。
      * 学生/教师可见 all + 自己角色；管理员只可见 all。
-     *
-     * @param rejectUnknownRole 未知角色时是否抛错。
-     *                          查询列表时为 true（提示无权查看）；
-     *                          标记已读时保持原逻辑的 false（退化为只看 all），
-     *                          避免与原有行为产生差异。
      */
     private QueryWrapper<SysNotice> visibleNoticesQuery(String role, boolean rejectUnknownRole) {
         QueryWrapper<SysNotice> qw = new QueryWrapper<>();

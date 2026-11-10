@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Service
 public class TeacherServiceImpl implements TeacherService {
@@ -44,6 +46,33 @@ public class TeacherServiceImpl implements TeacherService {
             teachers = teacherMapper.selectList(null);
         }
 
+        if (teachers.isEmpty()) {
+            return (page != null && size != null) ? new PageResult<>(total, new ArrayList<>()) : new ArrayList<>();
+        }
+
+        // 1. 批量查询院系
+        List<String> deptNos = teachers.stream()
+                .map(Teacher::getDeptNo)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        Map<String, Department> deptMap = deptNos.isEmpty() ? new HashMap<>() :
+                departmentMapper.selectBatchIds(deptNos).stream()
+                        .collect(Collectors.toMap(Department::getDeptNo, d -> d, (k1, k2) -> k1));
+
+        // 2. 批量查询职称
+        List<String> titleNos = teachers.stream()
+                .map(Teacher::getTitleNo)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        Map<String, TitleDict> titleMap = titleNos.isEmpty() ? new HashMap<>() :
+                titleDictMapper.selectBatchIds(titleNos).stream()
+                        .collect(Collectors.toMap(TitleDict::getTitleNo, t -> t, (k1, k2) -> k1));
+
+        // 3. 组装数据（零查库）
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (Teacher t : teachers) {
             Map<String, Object> map = new HashMap<>();
@@ -51,14 +80,17 @@ public class TeacherServiceImpl implements TeacherService {
             map.put("name", t.getName());
             map.put("deptNo", t.getDeptNo());
             map.put("titleNo", t.getTitleNo());
-            Department dept = departmentMapper.selectById(t.getDeptNo());
+
+            Department dept = deptMap.get(t.getDeptNo());
             map.put("deptName", dept != null ? dept.getDeptName() : "未分配");
-            TitleDict title = titleDictMapper.selectById(t.getTitleNo());
+
+            TitleDict title = titleMap.get(t.getTitleNo());
             map.put("titleName", title != null ? title.getTitleName() : "未分配");
+
             resultList.add(map);
         }
-        if (page != null && size != null) return new PageResult<>(total, resultList);
-        return resultList;
+
+        return (page != null && size != null) ? new PageResult<>(total, resultList) : resultList;
     }
 
     @Override
@@ -69,7 +101,7 @@ public class TeacherServiceImpl implements TeacherService {
         }
         teacher.setPassword(passwordEncoder.encode(teacher.getPassword()));
 
-        // ⚠️ 核心：检查工号是否被逻辑删除占用了
+        // 检查工号是否被逻辑删除占用了
         Teacher existTeacher = teacherMapper.selectRealById(teacher.getWorkNo());
         
         if (existTeacher != null) {
@@ -107,7 +139,7 @@ public class TeacherServiceImpl implements TeacherService {
         teacher.setPwdUpdateTime(LocalDateTime.now());
         teacherMapper.updateById(teacher);
 
-        // 【缓存一致性】改密成功后清除强制改密缓存
+        // 改密成功后清除强制改密缓存
         mustChangePasswordCache.evict("teacher", workNo);
 
         return "密码修改成功！";
