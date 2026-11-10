@@ -28,6 +28,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import com.lab.labsystem.common.BusinessException;
 
 @Service
 @Slf4j
@@ -54,7 +55,7 @@ public class StudentBookingServiceImpl implements StudentBookingService {
         String lockKey = "lock:book:" + studentNo + ":" + sessionNo;
         Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, "1", 5, TimeUnit.SECONDS);
         if (!Boolean.TRUE.equals(locked)) {
-            throw new RuntimeException("您正在预约中，请勿频繁点击！");
+            throw new BusinessException("您正在预约中，请勿频繁点击！");
         }
 
         try {
@@ -70,14 +71,14 @@ public class StudentBookingServiceImpl implements StudentBookingService {
      */
     private String doBookSession(String studentNo, String sessionNo, boolean isWaitlistAutoBook) {
         ExpSession targetSession = sessionMapper.selectById(sessionNo);
-        if (targetSession == null) throw new RuntimeException("该场次不存在！");
+        if (targetSession == null) throw new BusinessException("该场次不存在！");
 
         ExpProject project = projectMapper.selectById(targetSession.getProjectNo());
         if (project != null && project.getClassNo() != null) {
             QueryWrapper<StudentTeachClass> scQw = new QueryWrapper<StudentTeachClass>()
                     .eq("student_no", studentNo).eq("class_no", project.getClassNo());
             if (studentTeachClassMapper.selectCount(scQw) == 0) {
-                throw new RuntimeException("你尚未加入该实验所属的教学班，请先去【选课中心】加入！");
+                throw new BusinessException("你尚未加入该实验所属的教学班，请先去【选课中心】加入！");
             }
         }
 
@@ -89,13 +90,13 @@ public class StudentBookingServiceImpl implements StudentBookingService {
             ExpSession existingSession = sessionMapper.selectById(b.getSessionNo());
             if (existingSession != null) {
                 if (existingSession.getSessionNo().equals(sessionNo)) {
-                    throw new RuntimeException("你已经预约过该场次了，请勿重复预约！");
+                    throw new BusinessException("你已经预约过该场次了，请勿重复预约！");
                 }
                 if (existingSession.getSemester().equals(targetSession.getSemester()) &&
                     existingSession.getWeekNum().equals(targetSession.getWeekNum()) &&
                     existingSession.getDayOfWeek().equals(targetSession.getDayOfWeek()) &&
                     existingSession.getPeriod().equals(targetSession.getPeriod())) {
-                    throw new RuntimeException("时间冲突！你在【" + existingSession.getSemester() + " 第" + existingSession.getWeekNum() + "周】已经预约了其他实验课！");
+                    throw new BusinessException("时间冲突！你在【" + existingSession.getSemester() + " 第" + existingSession.getWeekNum() + "周】已经预约了其他实验课！");
                 }
             }
         }
@@ -103,7 +104,7 @@ public class StudentBookingServiceImpl implements StudentBookingService {
         UpdateWrapper<ExpSession> updateWrapper = new UpdateWrapper<>();
         updateWrapper.eq("session_no", sessionNo).gt("remaining_seats", 0).setSql("remaining_seats = remaining_seats - 1");
         int rows = sessionMapper.update(null, updateWrapper);
-        if (rows == 0) throw new RuntimeException("手慢了，该场次已被约满！");
+        if (rows == 0) throw new BusinessException("手慢了，该场次已被约满！");
 
         StudentBooking booking = new StudentBooking();
         booking.setBookingNo("B" + UUID.randomUUID().toString().substring(0, 8));
@@ -134,19 +135,19 @@ public class StudentBookingServiceImpl implements StudentBookingService {
     @Transactional(rollbackFor = Exception.class)
     public String joinWaitlist(String studentNo, String sessionNo) {
         ExpSession session = sessionMapper.selectById(sessionNo);
-        if (session == null) throw new RuntimeException("场次不存在！");
+        if (session == null) throw new BusinessException("场次不存在！");
         
         if (session.getRemainingSeats() > 0) {
-            throw new RuntimeException("当前场次还有余量，无需排队，请直接预约！");
+            throw new BusinessException("当前场次还有余量，无需排队，请直接预约！");
         }
 
         Long booked = bookingMapper.selectCount(new QueryWrapper<StudentBooking>()
                 .eq("student_no", studentNo).eq("session_no", sessionNo).eq("status", 1));
-        if (booked > 0) throw new RuntimeException("您已预约该场次，无需排队！");
+        if (booked > 0) throw new BusinessException("您已预约该场次，无需排队！");
 
         String userKey = WAITLIST_USER_PREFIX + sessionNo + ":" + studentNo;
         if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(userKey))) {
-            throw new RuntimeException("您已经在候补队列中，请耐心等待！");
+            throw new BusinessException("您已经在候补队列中，请耐心等待！");
         }
 
         // 1. 清理历史废弃记录
@@ -179,8 +180,8 @@ public class StudentBookingServiceImpl implements StudentBookingService {
     @Transactional(rollbackFor = Exception.class)
     public String cancelBooking(String studentNo, String bookingNo) {
         StudentBooking booking = bookingMapper.selectById(bookingNo);
-        if (booking == null) throw new RuntimeException("预约不存在或已取消！");
-        if (!booking.getStudentNo().equals(studentNo)) throw new RuntimeException("非法操作：你不能取消别人的预约！");
+        if (booking == null) throw new BusinessException("预约不存在或已取消！");
+        if (!booking.getStudentNo().equals(studentNo)) throw new BusinessException("非法操作：你不能取消别人的预约！");
 
         ExpSession session = sessionMapper.selectById(booking.getSessionNo());
         if (session != null) {
@@ -188,7 +189,7 @@ public class StudentBookingServiceImpl implements StudentBookingService {
             reportQw.eq("student_no", studentNo).eq("project_no", session.getProjectNo()).eq("is_latest", 1).last("limit 1");
             ExpReport report = reportMapper.selectOne(reportQw);
             if (report != null && report.getScore() != null) {
-                throw new RuntimeException("该实验报告已被教师批阅，无法取消预约！");
+                throw new BusinessException("该实验报告已被教师批阅，无法取消预约！");
             }
         }
 

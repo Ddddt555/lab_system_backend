@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import com.lab.labsystem.common.BusinessException;
 
 @Service
 public class TeacherScoreServiceImpl implements TeacherScoreService {
@@ -45,11 +46,11 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
     @Override
     public String saveScore(String currentWorkNo, String studentNo, String classNo, Double dailyScore) {
         List<ExpProject> projects = projectMapper.selectList(new QueryWrapper<ExpProject>().eq("class_no", classNo));
-        if (projects.isEmpty()) throw new RuntimeException("该教学班暂无实验项目");
+        if (projects.isEmpty()) throw new BusinessException("该教学班暂无实验项目");
         List<String> projectNos = projects.stream().map(ExpProject::getProjectNo).collect(Collectors.toList());
 
         List<ExpSession> mySessions = sessionMapper.selectList(new QueryWrapper<ExpSession>().in("project_no", projectNos).eq("work_no", currentWorkNo));
-        if (mySessions.isEmpty()) throw new RuntimeException("非法操作：您无权录入该班级成绩！");
+        if (mySessions.isEmpty()) throw new BusinessException("非法操作：您无权录入该班级成绩！");
 
         List<ExpReport> reports = reportMapper.selectList(new QueryWrapper<ExpReport>().eq("student_no", studentNo).in("project_no", projectNos).eq("is_latest", 1).isNotNull("score"));
         double avgReportScore = 0.0;
@@ -215,15 +216,15 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
     @Transactional(rollbackFor = Exception.class)
     public String updateWeight(String currentWorkNo, String classNo, Integer dailyWeight, Integer reportWeight) {
         if (dailyWeight == null || reportWeight == null || dailyWeight < 0 || reportWeight < 0) {
-            throw new RuntimeException("权重不能为空或负数！");
+            throw new BusinessException("权重不能为空或负数！");
         }
         if (dailyWeight + reportWeight != 100) {
-            throw new RuntimeException("权重之和必须等于 100%！");
+            throw new BusinessException("权重之和必须等于 100%！");
         }
 
         TeachClass tc = teachClassMapper.selectById(classNo);
         if (tc == null || !currentWorkNo.equals(tc.getWorkNo())) {
-            throw new RuntimeException("非法操作：您无权修改该班级权重！");
+            throw new BusinessException("非法操作：您无权修改该班级权重！");
         }
         tc.setDailyWeight(dailyWeight);
         tc.setReportWeight(reportWeight);
