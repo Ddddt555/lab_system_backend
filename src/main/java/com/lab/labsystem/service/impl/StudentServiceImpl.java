@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.PasswordValidator;
+import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.service.MustChangePasswordCache;
 import com.lab.labsystem.entity.AdminClass;
 import com.lab.labsystem.entity.Department;
@@ -64,7 +65,8 @@ public class StudentServiceImpl implements StudentService {
             students = studentPage.getRecords();
             total = studentPage.getTotal();
         } else {
-            students = studentMapper.selectList(null);
+            // 无分页参数时，限制最大返回条数，防止全表加载
+            students = QueryLimits.list(studentMapper, null);
         }
 
         if (students.isEmpty()) {

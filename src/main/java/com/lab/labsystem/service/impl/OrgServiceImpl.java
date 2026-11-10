@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.PageResult;
+import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.entity.AdminClass;
 import com.lab.labsystem.entity.Department;
 import com.lab.labsystem.entity.Major;
@@ -54,7 +55,8 @@ public class OrgServiceImpl implements OrgService {
             majors = majorPage.getRecords();
             total = majorPage.getTotal();
         } else {
-            majors = majorMapper.selectList(null);
+            // 无分页参数时，限制最大返回条数，防止全表加载
+            majors = QueryLimits.list(majorMapper, null);
         }
 
         if (majors.isEmpty()) {
@@ -112,7 +114,8 @@ public class OrgServiceImpl implements OrgService {
             classes = classPage.getRecords();
             total = classPage.getTotal();
         } else {
-            classes = adminClassMapper.selectList(null);
+            // 无分页参数时，限制最大返回条数，防止全表加载
+            classes = QueryLimits.list(adminClassMapper, null);
         }
 
         if (classes.isEmpty()) {

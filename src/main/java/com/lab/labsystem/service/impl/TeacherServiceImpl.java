@@ -2,6 +2,7 @@ package com.lab.labsystem.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.PageResult;
+import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.entity.Department;
 import com.lab.labsystem.entity.Teacher;
 import com.lab.labsystem.entity.TitleDict;
@@ -43,7 +44,8 @@ public class TeacherServiceImpl implements TeacherService {
             teachers = teacherPage.getRecords();
             total = teacherPage.getTotal();
         } else {
-            teachers = teacherMapper.selectList(null);
+            // 无分页参数时，限制最大返回条数，防止全表加载
+            teachers = QueryLimits.list(teacherMapper, null);
         }
 
         if (teachers.isEmpty()) {

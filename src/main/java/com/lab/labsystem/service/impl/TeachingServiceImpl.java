@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.PageResult;
+import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.entity.ExpCourse;
 import com.lab.labsystem.entity.ExpProject;
 import com.lab.labsystem.entity.StudentTeachClass;
@@ -23,6 +24,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Service
 public class TeachingServiceImpl implements TeachingService {
@@ -42,9 +45,37 @@ public class TeachingServiceImpl implements TeachingService {
             classes = classPage.getRecords();
             total = classPage.getTotal();
         } else {
-            classes = teachClassMapper.selectList(null);
+            // 无分页参数时，限制最大返回条数，防止全表加载
+            classes = QueryLimits.list(teachClassMapper, null);
         }
 
+        if (classes.isEmpty()) {
+            return (page != null && size != null) ? new PageResult<>(total, new ArrayList<>()) : new ArrayList<>();
+        }
+
+        // 1. 批量查询课程
+        List<String> courseNos = classes.stream()
+                .map(TeachClass::getCourseNo)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        Map<String, ExpCourse> courseMap = courseNos.isEmpty() ? new HashMap<>() :
+                courseMapper.selectBatchIds(courseNos).stream()
+                        .collect(Collectors.toMap(ExpCourse::getCourseNo, c -> c, (k1, k2) -> k1));
+
+        // 2. 批量查询教师
+        List<String> workNos = classes.stream()
+                .map(TeachClass::getWorkNo)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        Map<String, Teacher> teacherMap = workNos.isEmpty() ? new HashMap<>() :
+                teacherMapper.selectBatchIds(workNos).stream()
+                        .collect(Collectors.toMap(Teacher::getWorkNo, t -> t, (k1, k2) -> k1));
+
+        // 3. 组装数据（零查库）
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (TeachClass tc : classes) {
             Map<String, Object> map = new HashMap<>();
@@ -52,14 +83,17 @@ public class TeachingServiceImpl implements TeachingService {
             map.put("courseNo", tc.getCourseNo());
             map.put("workNo", tc.getWorkNo());
             map.put("semester", tc.getSemester());
-            ExpCourse course = courseMapper.selectById(tc.getCourseNo());
+
+            ExpCourse course = courseMap.get(tc.getCourseNo());
             map.put("courseName", course != null ? course.getCourseName() : "未知课程");
-            Teacher teacher = teacherMapper.selectById(tc.getWorkNo());
+
+            Teacher teacher = teacherMap.get(tc.getWorkNo());
             map.put("teacherName", teacher != null ? teacher.getName() : "未知教师");
+
             resultList.add(map);
         }
-        if (page != null && size != null) return new PageResult<>(total, resultList);
-        return resultList;
+
+        return (page != null && size != null) ? new PageResult<>(total, resultList) : resultList;
     }
 
     @Override
@@ -71,7 +105,7 @@ public class TeachingServiceImpl implements TeachingService {
 
     @Override
     public void deleteTeachClass(String classNo) {
-        // 【引用检查】教学班被实验项目或选课记录引用时不允许删除
+        // 引用检查：教学班被实验项目或选课记录引用时不允许删除
         long projects = projectMapper.selectCount(
                 new QueryWrapper<ExpProject>().eq("class_no", classNo));
         if (projects > 0) {
