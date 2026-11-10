@@ -25,7 +25,7 @@
 
 ## 🛠 技术栈 (Tech Stack)
 
-- **后端核心**：Java 21, Spring Boot 3.3.5, MyBatis-Plus
+- **后端核心**：Java 21, Spring Boot 3.3.11, MyBatis-Plus
 - **数据库与中间件**：MySQL 8.0, Redis 7 (Redisson), MinIO
 - **认证与安全**：Spring Security Crypto (BCrypt), JJWT
 - **监控与日志**：Spring Boot Actuator, Prometheus, Micrometer, TraceId 全链路追踪
