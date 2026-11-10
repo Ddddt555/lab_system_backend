@@ -1,7 +1,7 @@
 package com.lab.labsystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.extension.toolkit.Db;
+import com.lab.labsystem.common.BatchOperations;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.websocket.GlobalWebSocket;
 import com.lab.labsystem.entity.SysNotice;
@@ -36,13 +36,16 @@ public class NoticeServiceImpl implements NoticeService {
     private final SysNoticeMapper noticeMapper;
     private final SysNoticeReadMapper noticeReadMapper;
     private final TeacherMapper teacherMapper;
+    private final BatchOperations batchOperations;
 
     public NoticeServiceImpl(SysNoticeMapper noticeMapper,
                              SysNoticeReadMapper noticeReadMapper,
-                             TeacherMapper teacherMapper) {
+                             TeacherMapper teacherMapper,
+                             BatchOperations batchOperations) {
         this.noticeMapper = noticeMapper;
         this.noticeReadMapper = noticeReadMapper;
         this.teacherMapper = teacherMapper;
+        this.batchOperations = batchOperations;
     }
 
     @Override
@@ -127,8 +130,8 @@ public class NoticeServiceImpl implements NoticeService {
         }
         
         if (!readList.isEmpty()) {
-            // 使用 MyBatis-Plus 的 Db 工具类进行批量插入
-            Db.saveBatch(readList);
+            // 批量插入（通过适配层，便于单元测试验证）
+            batchOperations.saveBatch(readList);
         }
         
         return readList.size();

@@ -1,7 +1,9 @@
 package com.lab.labsystem.service.impl;
 
+import com.lab.labsystem.common.BatchOperations;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.entity.TeachClass;
+import com.lab.labsystem.mapper.ExpScoreMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -10,7 +12,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -23,13 +28,19 @@ import static org.mockito.Mockito.when;
 class TeacherScoreServiceWeightTest {
 
     private TeachClassMapper teachClassMapper;
+    private ExpScoreMapper scoreMapper;
+    private BatchOperations batchOperations;
     private TeacherScoreServiceImpl service;
 
     @BeforeEach
     void setUp() {
         teachClassMapper = mock(TeachClassMapper.class);
+        scoreMapper = mock(ExpScoreMapper.class);
+        batchOperations = mock(BatchOperations.class);
         service = new TeacherScoreServiceImpl();
         ReflectionTestUtils.setField(service, "teachClassMapper", teachClassMapper);
+        ReflectionTestUtils.setField(service, "scoreMapper", scoreMapper);
+        ReflectionTestUtils.setField(service, "batchOperations", batchOperations);
     }
 
     @Test
@@ -50,6 +61,36 @@ class TeacherScoreServiceWeightTest {
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.updateWeight("T001", "C1", 30, 60));
         assertEquals("权重之和必须等于 100%！", e.getMessage());
+    }
+
+    @Test
+    @DisplayName("权重修改成功后走批量更新，不退化为逐条 update")
+    @SuppressWarnings("unchecked")
+    void updateWeightUsesBatchUpdate() {
+        TeachClass tc = new TeachClass();
+        tc.setClassNo("C1");
+        tc.setWorkNo("T001");
+        when(teachClassMapper.selectById("C1")).thenReturn(tc);
+
+        com.lab.labsystem.entity.ExpScore s1 = new com.lab.labsystem.entity.ExpScore();
+        s1.setStudentNo("S1");
+        s1.setDailyScore(80.0);
+        s1.setReportScore(90.0);
+        com.lab.labsystem.entity.ExpScore s2 = new com.lab.labsystem.entity.ExpScore();
+        s2.setStudentNo("S2");
+        s2.setDailyScore(70.0);
+        s2.setReportScore(60.0);
+        when(scoreMapper.selectList(any())).thenReturn(java.util.Arrays.asList(s1, s2));
+
+        String msg = service.updateWeight("T001", "C1", 30, 70);
+
+        assertTrue(msg.contains("2 名学生"));
+        org.mockito.ArgumentCaptor<java.util.Collection<com.lab.labsystem.entity.ExpScore>> captor =
+                org.mockito.ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(batchOperations).updateBatchById(captor.capture());
+        assertEquals(2, captor.getValue().size());
+        verify(scoreMapper, org.mockito.Mockito.never())
+                .updateById(any(com.lab.labsystem.entity.ExpScore.class));
     }
 
     @Test

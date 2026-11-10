@@ -1,6 +1,7 @@
 package com.lab.labsystem.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.lab.labsystem.common.BatchOperations;
 import com.lab.labsystem.entity.SysNotice;
 import com.lab.labsystem.entity.SysNoticeRead;
 import com.lab.labsystem.entity.Teacher;
@@ -38,6 +39,7 @@ class NoticeServiceImplTest {
     private SysNoticeMapper noticeMapper;
     private SysNoticeReadMapper noticeReadMapper;
     private TeacherMapper teacherMapper;
+    private BatchOperations batchOperations;
     private NoticeServiceImpl service;
 
     @BeforeEach
@@ -45,7 +47,8 @@ class NoticeServiceImplTest {
         noticeMapper = mock(SysNoticeMapper.class);
         noticeReadMapper = mock(SysNoticeReadMapper.class);
         teacherMapper = mock(TeacherMapper.class);
-        service = new NoticeServiceImpl(noticeMapper, noticeReadMapper, teacherMapper);
+        batchOperations = mock(BatchOperations.class);
+        service = new NoticeServiceImpl(noticeMapper, noticeReadMapper, teacherMapper, batchOperations);
     }
 
     private static SysNotice notice(String id) {
@@ -150,7 +153,14 @@ class NoticeServiceImplTest {
         int count = service.markAllRead("student", "S001");
 
         assertEquals(1, count);
-        verify(noticeReadMapper, times(1)).insert(any(SysNoticeRead.class));
+
+        // 只应把未读的那条（N2）交给批量插入，且不能退化为逐条 insert
+        ArgumentCaptor<java.util.Collection<SysNoticeRead>> captor =
+                ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(batchOperations).saveBatch(captor.capture());
+        assertEquals(1, captor.getValue().size());
+        assertEquals("N2", captor.getValue().iterator().next().getNoticeId());
+        verify(noticeReadMapper, never()).insert(any(SysNoticeRead.class));
     }
 
     @Test
