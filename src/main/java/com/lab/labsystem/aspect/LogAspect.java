@@ -54,11 +54,11 @@ public class LogAspect {
             LogRecord logRecord = signature.getMethod().getAnnotation(LogRecord.class);
 
             if (logRecord != null) {
-                SysLog log = new SysLog();
-                log.setAction(logRecord.value());
-                log.setCreateTime(LocalDateTime.now());
-                log.setCostMs(costMs);
-                log.setSuccess(exception == null ? 1 : 0); // 1成功，0失败
+                SysLog sysLog = new SysLog();
+                sysLog.setAction(logRecord.value());
+                sysLog.setCreateTime(LocalDateTime.now());
+                sysLog.setCostMs(costMs);
+                sysLog.setSuccess(exception == null ? 1 : 0); // 1成功，0失败
 
                 if (exception != null) {
                     // 截取异常信息，防止超过数据库字段长度 (500)
@@ -66,7 +66,7 @@ public class LogAspect {
                     if (msg != null && msg.length() > 450) {
                         msg = msg.substring(0, 450) + "...";
                     }
-                    log.setErrorMsg(msg);
+                    sysLog.setErrorMsg(msg);
                 }
 
                 ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
@@ -78,25 +78,25 @@ public class LogAspect {
                     if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
                         ip = request.getRemoteAddr();
                     }
-                    log.setIp(ip);
-                    log.setMethod(request.getMethod());
-                    log.setUri(request.getRequestURI());
+                    sysLog.setIp(ip);
+                    sysLog.setMethod(request.getMethod());
+                    sysLog.setUri(request.getRequestURI());
 
                     // 抓取操作人身份
                     String role = (String) request.getAttribute("currentUserRole");
                     String userNo = (String) request.getAttribute("currentUserNo");
                     if ("admin".equals(role)) {
-                        log.setOperator("管理员-" + (userNo == null ? "admin" : userNo));
+                        sysLog.setOperator("管理员-" + (userNo == null ? "admin" : userNo));
                     } else if ("teacher".equals(role)) {
-                        log.setOperator("教师-" + userNo);
+                        sysLog.setOperator("教师-" + userNo);
                     } else if ("student".equals(role)) {
-                        log.setOperator("学生-" + userNo);
+                        sysLog.setOperator("学生-" + userNo);
                     } else {
-                        log.setOperator("未知身份");
+                        sysLog.setOperator("未知身份");
                     }
                 }
 
-                logMapper.insert(log);
+                logMapper.insert(sysLog);
             }
         } catch (Exception e) {
             // 记录日志失败不影响主业务流程，仅在控制台打印错误
