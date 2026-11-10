@@ -8,10 +8,34 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-push:
+  # ==========================================================
+  # 1. 单元测试：不依赖任何外部中间件，几十秒内完成
+  # ==========================================================
+  unit-test:
+    name: 单元测试
+    runs-on: ubuntu-latest
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+
+    - name: 设置 Java 21 环境
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+
+    # pom 中默认排除 @Tag("integration")，这里只会跑纯单元测试
+    - name: 运行单元测试
+      run: mvn -B test
+
+  # ==========================================================
+  # 2. 集成测试：需要 MySQL + Redis，单独一个 job
+  # ==========================================================
+  integration-test:
+    name: 集成测试
     runs-on: ubuntu-latest
 
-    # 🛑 只启动 MySQL 和 Redis 服务容器
     services:
       mysql:
         image: mysql:8.0
@@ -28,6 +52,44 @@ jobs:
         options: --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=5
 
     steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+
+    - name: 设置 Java 21 环境
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: 安装 MySQL 客户端并初始化测试库
+      run: |
+        sudo apt-get update && sudo apt-get install -y default-mysql-client
+        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V1__init.sql
+        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V2__init_data.sql
+        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V3__add_notice_read.sql
+        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V4__add_indexes.sql
+        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < run_test_data.sql
+
+    # -Pintegration 会把 surefire 的分组切换为 integration，只跑打了
+    # @Tag("integration") 的用例（SecurityHardeningTest / LabsystemApplicationTests）
+    - name: 运行集成测试
+      run: mvn -B test -Pintegration
+      env:
+        DB_PASSWORD: root
+        MINIO_ACCESS_KEY: testminio
+        MINIO_SECRET_KEY: testminio
+
+  # ==========================================================
+  # 3. 构建并推送镜像（仅非 PR 事件）
+  # ==========================================================
+  build-and-push:
+    name: 构建并推送镜像
+    needs: [unit-test, integration-test]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
     - name: 1. 检出代码
       uses: actions/checkout@v4
 
@@ -38,34 +100,20 @@ jobs:
         distribution: 'temurin'
         cache: maven
 
-    - name: 3. 安装 MySQL 客户端并初始化测试库
-      run: |
-        sudo apt-get update && sudo apt-get install -y default-mysql-client
-        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V1__init.sql
-        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V2__init_data.sql
-        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V3__add_notice_read.sql
-        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < run_test_data.sql
+    # 测试已在上游两个 job 中完成，这里只打包，避免重复执行
+    - name: 3. 打包（跳过测试）
+      run: mvn -B -DskipTests package
 
-    - name: 4. 编译打包并运行测试 (质量门禁)
-      run: mvn clean package
-      env:
-        DB_PASSWORD: root
-        MINIO_ACCESS_KEY: testminio
-        MINIO_SECRET_KEY: testminio
-
-    - name: 5. 设置 Docker Buildx
-      if: github.event_name != 'pull_request'
+    - name: 4. 设置 Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: 6. 登录 Docker Hub
-      if: github.event_name != 'pull_request'
+    - name: 5. 登录 Docker Hub
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: 7. 构建并推送 Docker 镜像
-      if: github.event_name != 'pull_request'
+    - name: 6. 构建并推送 Docker 镜像
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -77,9 +125,7 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    # 🛑【核心新增】Trivy 镜像漏洞扫描
-    - name: 8. 镜像安全扫描 (Trivy)
-      if: github.event_name != 'pull_request'
+    - name: 7. 镜像安全扫描 (Trivy)
       uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: ${{ secrets.DOCKER_USERNAME }}/labsystem:${{ github.sha }}
