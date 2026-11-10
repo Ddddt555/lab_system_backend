@@ -28,11 +28,10 @@ public class NumberGenerator {
     // ⚠️ 核心注入：Redis 模板
     @Autowired private StringRedisTemplate stringRedisTemplate;
 
-    private final String currentYearStr = String.valueOf(LocalDate.now().getYear());
-    private final String currentYY = currentYearStr.substring(2); 
-    private final String currentMM = String.format("%02d", LocalDate.now().getMonthValue()); 
-    private final String currentDD = String.format("%02d", LocalDate.now().getDayOfMonth()); 
-
+    private String currentYearStr() { return String.valueOf(LocalDate.now().getYear()); }
+    private String currentYY() { return currentYearStr().substring(2); }
+    private String currentMM() { return String.format("%02d", LocalDate.now().getMonthValue()); }
+    private String currentDD() { return String.format("%02d", LocalDate.now().getDayOfMonth()); }
     /**
      * ⚠️ 核心通用方法：使用 Redis 分布式自增生成序列号
      * @param redisKey Redis的键 (例如: "seq:student:2026")
@@ -64,7 +63,7 @@ public class NumberGenerator {
 
     // 1. 生成学号：年份(4位) + 顺序号(4位)  例：20260001
     public String generateStudentNo() {
-        String prefix = currentYearStr;
+        String prefix = currentYearStr();
         String redisKey = "seq:student:" + prefix;
         Student last = studentMapper.selectOne(new QueryWrapper<Student>()
                 .likeRight("student_no", prefix).orderByDesc("student_no").last("limit 1"));
@@ -74,7 +73,7 @@ public class NumberGenerator {
 
     // 2. 生成工号：T + 年份(4位) + 顺序号(3位)  例：T2026001
     public String generateWorkNo() {
-        String prefix = "T" + currentYearStr;
+        String prefix = "T" + currentYearStr();
         String redisKey = "seq:teacher:" + prefix;
         Teacher last = teacherMapper.selectOne(new QueryWrapper<Teacher>()
                 .likeRight("work_no", prefix).orderByDesc("work_no").last("limit 1"));
@@ -84,7 +83,7 @@ public class NumberGenerator {
 
     // 3. 生成教学班号：TC + 课程号 + 年份后两位 + 顺序号(2位)  例：TCC0012601
     public String generateClassNo(String courseNo) {
-        String prefix = "TC" + courseNo + currentYY;
+        String prefix = "TC" + courseNo + currentYY();
         String redisKey = "seq:class:" + prefix;
         TeachClass last = teachClassMapper.selectOne(new QueryWrapper<TeachClass>()
                 .likeRight("class_no", prefix).orderByDesc("class_no").last("limit 1"));
@@ -94,7 +93,7 @@ public class NumberGenerator {
 
     // 4. 生成项目号：P + 年份后两位 + 月份(2位) + 顺序号(3位)  例：P2610001
     public String generateProjectNo() {
-        String prefix = "P" + currentYY + currentMM;
+        String prefix = "P" + currentYY() + currentMM();
         String redisKey = "seq:project:" + prefix;
         ExpProject last = projectMapper.selectOne(new QueryWrapper<ExpProject>()
                 .likeRight("project_no", prefix).orderByDesc("project_no").last("limit 1"));
@@ -104,7 +103,7 @@ public class NumberGenerator {
 
     // 5. 生成场次号：S + 年份(4位) + 月份(2位) + 日(2位) + 顺序号(2位)  例：S2026102701
     public String generateSessionNo() {
-        String prefix = "S" + currentYearStr + currentMM + currentDD;
+        String prefix = "S" + currentYearStr() + currentMM() + currentDD();
         String redisKey = "seq:session:" + prefix;
         ExpSession last = sessionMapper.selectOne(new QueryWrapper<ExpSession>()
                 .likeRight("session_no", prefix).orderByDesc("session_no").last("limit 1"));

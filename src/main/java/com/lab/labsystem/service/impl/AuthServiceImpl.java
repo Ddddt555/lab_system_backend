@@ -18,6 +18,8 @@ import com.lab.labsystem.vo.LoginUserVO;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -53,6 +55,7 @@ public class AuthServiceImpl implements AuthService {
     private final SysLogMapper logMapper;
     private final CaptchaService captchaService;
     private final StringRedisTemplate stringRedisTemplate;
+    private final Environment environment; // 注入 Environment
 
     @Value("${app.security.test-login-enabled:false}")
     private boolean testLoginEnabled;
@@ -64,7 +67,8 @@ public class AuthServiceImpl implements AuthService {
                            BCryptPasswordEncoder passwordEncoder,
                            SysLogMapper logMapper,
                            CaptchaService captchaService,
-                           StringRedisTemplate stringRedisTemplate) {
+                           StringRedisTemplate stringRedisTemplate,
+                           Environment environment) { // 构造函数加入 Environment
         this.studentMapper = studentMapper;
         this.teacherMapper = teacherMapper;
         this.sysAdminMapper = sysAdminMapper;
@@ -73,6 +77,7 @@ public class AuthServiceImpl implements AuthService {
         this.logMapper = logMapper;
         this.captchaService = captchaService;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.environment = environment;
     }
 
     @Override
@@ -166,11 +171,8 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public Map<String, Object> testLogin(String username, String role, HttpServletRequest request) {
-        String activeProfile = System.getProperty("spring.profiles.active");
-        if (activeProfile == null) {
-            activeProfile = System.getenv("SPRING_PROFILES_ACTIVE");
-        }
-        if ("prod".equals(activeProfile)) {
+        // 使用 Environment 判断，确保能识别所有配置方式下的 prod 环境
+        if (environment.acceptsProfiles(Profiles.of("prod"))) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.NOT_FOUND, "Not Found");
         }

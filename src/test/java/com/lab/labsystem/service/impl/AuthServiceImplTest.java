@@ -77,7 +77,8 @@ class AuthServiceImplTest {
                 mock(BCryptPasswordEncoder.class),
                 mock(SysLogMapper.class),
                 captchaService,
-                redis);
+                redis,
+        		mock(org.springframework.core.env.Environment.class)); 
     }
 
     private static HttpServletRequest request() {

@@ -35,30 +35,75 @@
 
 ## 🚀 快速启动 (Quick Start)
 
-### 前置要求
-- 安装 Docker 和 Docker Compose
-- 确保所需端口未被占用（默认：80, 8080, 3306, 6379, 9000）
+本项目提供两种启动方式：**开箱即用的全栈体验**（适合直接看效果）和 **本地开发调试**（适合二次开发）。
 
-### 启动步骤
+### 前置要求
+- 安装 Docker 和 Docker Compose。
+- 确保宿主机端口未被占用：`80` (前端), `8080` (后端), `3306` (MySQL), `6379` (Redis), `9000/9001` (MinIO), `3000/9090` (监控)。
+
+### 方式一：一键拉起全栈环境（推荐体验）
+无需配置复杂的本地环境，直接使用 Docker 拉取镜像并运行。
 
 **1. 克隆仓库**
+```bash
+git clone https://github.com/Ddddt555/lab_system_backend.git
+cd lab_system_backend
+```
 
-    git clone https://github.com/Ddddt555/lab_system_backend.git
-    cd lab_system_backend
+**2. 准备环境变量**
+复制模板并修改里面的密码（如数据库密码等）：
+```bash
+cp .env.example .env
+```
 
-**2. 配置环境变量**
-
-复制 `.env.example` 为 `.env`（或直接在生产环境注入变量），并填入真实的密码和密钥。
-
-**3. 一键启动生产环境**
-
-    docker compose -f docker-compose.prod.yml up -d
+**3. 启动容器**
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+*(等待约 30 秒，待所有容器状态变为 `healthy` 后即可访问。)*
 
 **4. 访问系统**
+- **前端页面**：`http://localhost` （或配置的域名）
+- **默认账号**：`admin` / `123456` (管理员)
 
-- 前端页面：`http://localhost` （或配置的域名）
-- 后端 API 文档 (仅 dev 环境)：`http://localhost:8080/doc.html`
-- 健康检查：`http://localhost:8080/actuator/health`
+**5. 监控面板**
+- **Grafana 监控大盘**：`http://localhost:3000`
+- **Prometheus 告警**：`http://localhost:9090/alerts`
+
+---
+
+### 方式二：本地开发与调试
+如果你想修改代码或进行二次开发，建议在本地运行前后端，中间件使用 Docker 启动。
+
+**1. 启动基础中间件**
+```bash
+docker compose up -d mysql redis minio
+```
+
+**2. 启动后端**
+由于本地启动不走 Docker，必须手动注入环境变量。请在 IDE（如 IntelliJ IDEA）的运行配置（Environment variables）中添加以下变量：
+
+- `DB_PASSWORD`：你的 MySQL 密码
+- `JWT_SECRET`：JWT 签名密钥（必须至少 32 个字符）
+- `MINIO_ACCESS_KEY`：你的 MinIO 用户名（如 `minioadmin`）
+- `MINIO_SECRET_KEY`：你的 MinIO 密码
+- `REDIS_PASSWORD`：你的 Redis 密码
+
+配置好后，直接运行 `LabsystemApplication.java` 即可。
+
+**本地后端访问地址**：
+- **API 接口文档**：`http://localhost:8080/doc.html`
+- **健康检查**：`http://localhost:8080/actuator/health`
+
+**3. 启动前端**
+前端代码需要单独克隆并启动：
+```bash
+git clone https://github.com/Ddddt555/lab_system_frontend.git
+cd lab_system_frontend
+npm install
+npm run dev
+```
+- 访问 `http://localhost:5173` 进行开发调试。
 
 ---
 
@@ -74,7 +119,8 @@
     │   ├── service          # 业务逻辑层
     │   └── mapper           # 数据访问层
     ├── src/main/resources   # 配置文件及 Flyway 迁移脚本
-    └── docker-compose.yml   # 生产环境容器编排
+    ├── docker-compose.yml   # 本地开发环境容器编排 (MySQL/Redis/MinIO)
+    └── docker-compose.prod.yml # 生产环境全栈编排 (包含前后端及监控)
 
 ---
 

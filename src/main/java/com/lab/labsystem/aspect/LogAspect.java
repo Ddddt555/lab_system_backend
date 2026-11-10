@@ -4,6 +4,7 @@ import com.lab.labsystem.annotation.LogRecord;
 import com.lab.labsystem.entity.SysLog;
 import com.lab.labsystem.mapper.SysLogMapper;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -16,6 +17,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.LocalDateTime;
 
+@Slf4j
 @Aspect
 @Component
 public class LogAspect {
@@ -26,7 +28,7 @@ public class LogAspect {
     @Pointcut("@annotation(com.lab.labsystem.annotation.LogRecord)")
     public void logPointCut() {}
 
-    // 🛑 改用 Around 切面，这样即使目标方法抛出异常也能在 finally 中记录日志
+    // 使用 Around 切面，这样即使目标方法抛出异常也能在 finally 中记录日志
     @Around("logPointCut()")
     public Object doAround(ProceedingJoinPoint joinPoint) throws Throwable {
         long startTime = System.currentTimeMillis();
@@ -47,53 +49,58 @@ public class LogAspect {
     }
 
     private void saveLog(ProceedingJoinPoint joinPoint, Exception exception, long costMs) {
-        MethodSignature signature = (MethodSignature) joinPoint.getSignature();
-        LogRecord logRecord = signature.getMethod().getAnnotation(LogRecord.class);
-        
-        if (logRecord != null) {
-            SysLog log = new SysLog();
-            log.setAction(logRecord.value());
-            log.setCreateTime(LocalDateTime.now());
-            log.setCostMs(costMs);
-            log.setSuccess(exception == null ? 1 : 0); // 1成功，0失败
-            
-            if (exception != null) {
-                // 截取异常信息，防止超过数据库字段长度 (500)
-                String msg = exception.getMessage();
-                if (msg != null && msg.length() > 450) {
-                    msg = msg.substring(0, 450) + "...";
-                }
-                log.setErrorMsg(msg);
-            }
+        try {
+            MethodSignature signature = (MethodSignature) joinPoint.getSignature();
+            LogRecord logRecord = signature.getMethod().getAnnotation(LogRecord.class);
 
-            ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-            if (attributes != null) {
-                HttpServletRequest request = attributes.getRequest();
-                
-                // 🛑 抓取 IP（考虑反向代理的情况）
-                String ip = request.getHeader("X-Forwarded-For");
-                if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
-                    ip = request.getRemoteAddr();
-                }
-                log.setIp(ip);
-                log.setMethod(request.getMethod());
-                log.setUri(request.getRequestURI());
+            if (logRecord != null) {
+                SysLog log = new SysLog();
+                log.setAction(logRecord.value());
+                log.setCreateTime(LocalDateTime.now());
+                log.setCostMs(costMs);
+                log.setSuccess(exception == null ? 1 : 0); // 1成功，0失败
 
-                // 抓取身份
-                String role = (String) request.getAttribute("currentUserRole");
-                String userNo = (String) request.getAttribute("currentUserNo");
-                if ("admin".equals(role)) {
-                    log.setOperator("管理员-" + (userNo == null ? "admin" : userNo));
-                } else if ("teacher".equals(role)) {
-                    log.setOperator("教师-" + userNo);
-                } else if ("student".equals(role)) {
-                    log.setOperator("学生-" + userNo);
-                } else {
-                    log.setOperator("未知身份");
+                if (exception != null) {
+                    // 截取异常信息，防止超过数据库字段长度 (500)
+                    String msg = exception.getMessage();
+                    if (msg != null && msg.length() > 450) {
+                        msg = msg.substring(0, 450) + "...";
+                    }
+                    log.setErrorMsg(msg);
                 }
+
+                ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+                if (attributes != null) {
+                    HttpServletRequest request = attributes.getRequest();
+
+                    // 抓取真实 IP（考虑 Nginx 等反向代理的情况）
+                    String ip = request.getHeader("X-Forwarded-For");
+                    if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+                        ip = request.getRemoteAddr();
+                    }
+                    log.setIp(ip);
+                    log.setMethod(request.getMethod());
+                    log.setUri(request.getRequestURI());
+
+                    // 抓取操作人身份
+                    String role = (String) request.getAttribute("currentUserRole");
+                    String userNo = (String) request.getAttribute("currentUserNo");
+                    if ("admin".equals(role)) {
+                        log.setOperator("管理员-" + (userNo == null ? "admin" : userNo));
+                    } else if ("teacher".equals(role)) {
+                        log.setOperator("教师-" + userNo);
+                    } else if ("student".equals(role)) {
+                        log.setOperator("学生-" + userNo);
+                    } else {
+                        log.setOperator("未知身份");
+                    }
+                }
+
+                logMapper.insert(log);
             }
-            
-            logMapper.insert(log);
+        } catch (Exception e) {
+            // 记录日志失败不影响主业务流程，仅在控制台打印错误
+            log.error("记录操作日志失败，已忽略", e);
         }
     }
 }

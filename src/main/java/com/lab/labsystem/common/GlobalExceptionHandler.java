@@ -9,10 +9,10 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-// 🛑【新增导包】
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @Slf4j
 @RestControllerAdvice
@@ -25,53 +25,59 @@ public class GlobalExceptionHandler {
         return "dev".equalsIgnoreCase(activeProfile) || "test".equalsIgnoreCase(activeProfile);
     }
 
-    // 1. 处理所有未被捕获的系统级异常
+    // 1. 处理自定义的业务异常（预期内的错误，直接返回给用户提示）
+    @ExceptionHandler(BusinessException.class)
+    public Result<String> handleBusinessException(BusinessException e) {
+        // 业务异常不需要打印堆栈，只记录 warn 即可
+        log.warn("业务逻辑异常: {}", e.getMessage());
+        return Result.error(e.getMessage());
+    }
+
+    // 2. 处理其他运行时异常（非预期内的错误，如空指针、数据库报错等）
+    @ExceptionHandler(RuntimeException.class)
+    public Result<String> handleRuntimeException(RuntimeException e) {
+        log.error("运行时异常: ", e);
+        
+        String traceId = MDC.get("traceId");
+        String traceInfo = traceId != null ? "（追踪码: " + traceId + "）" : "";
+
+        if (isDev()) {
+            return Result.error("运行时异常(DEV)：" + e.getMessage() + traceInfo);
+        }
+        // 生产环境隐藏具体报错，防止敏感信息泄露
+        return Result.error("操作失败，系统繁忙，请稍后重试" + traceInfo);
+    }
+
+    // 3. 处理所有未被捕获的 Exception 级异常
     @ExceptionHandler(Exception.class)
     public Result<String> handleException(Exception e) {
-        // 🛑 记录完整的错误堆栈
         log.error("系统发生未捕获异常: ", e);
         
-        // 🛑 获取当前的 Trace ID
         String traceId = MDC.get("traceId");
         String traceInfo = traceId != null ? "（追踪码: " + traceId + "）" : "";
 
         if (isDev()) {
             return Result.error("服务器开小差了(DEV)：" + e.getMessage() + traceInfo);
-        } else {
-            return Result.error("服务器开小差了，请联系管理员并提供追踪码" + traceInfo);
         }
+        return Result.error("服务器开小差了，请联系管理员并提供追踪码" + traceInfo);
     }
 
-    // 2. 处理空指针异常（单独兜底）
-    @ExceptionHandler(NullPointerException.class)
-    public Result<String> handleNullPointerException(NullPointerException e) {
-        log.error("触发空指针异常: ", e);
-        
-        String traceId = MDC.get("traceId");
-        String traceInfo = traceId != null ? "（追踪码: " + traceId + "）" : "";
-        
-        if (isDev()) {
-            return Result.error("操作失败(DEV)：系统检测到空数据异常！" + traceInfo);
-        }
-        return Result.error("操作失败：系统处理数据时遇到了一点小问题！" + traceInfo);
+    // 4. 处理 404 找不到资源异常（比如访问了不存在的接口或静态文件）
+    @ExceptionHandler(NoResourceFoundException.class)
+    public Result<String> handleNotFound(NoResourceFoundException e) {
+        // 这类异常通常是扫描器或者敲错地址，不需要打印完整的 Error 堆栈刷屏
+        log.warn("请求的资源不存在: {}", e.getMessage());
+        return Result.error("请求的资源不存在");
     }
 
-    // 3. 处理业务逻辑异常（适用于你手动 throw new RuntimeException 的情况）
-    @ExceptionHandler(RuntimeException.class)
-    public Result<String> handleRuntimeException(RuntimeException e) {
-        // 业务提示不需要打印完整堆栈，只记录 warn 级别即可
-        log.warn("业务逻辑异常: {}", e.getMessage());
-        return Result.error(e.getMessage());
-    }
-
-    // 4. 处理数据库唯一索引冲突（如并发重复预约、重复插入等）
+    // 5. 处理数据库唯一索引冲突（如并发重复预约、重复插入等）
     @ExceptionHandler(DuplicateKeyException.class)
     public Result<String> handleDuplicateKeyException(DuplicateKeyException e) {
         log.error("数据库唯一约束冲突: {}", e.getMessage());
         return Result.error("操作失败：您已经提交过了，请勿重复操作！");
     }
 
-    // 5. 处理 @Valid 参数校验异常
+    // 6. 处理 @Valid 参数校验异常（JSON Body）
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public Result<String> handleValidationExceptions(MethodArgumentNotValidException e) {
         FieldError fieldError = e.getBindingResult().getFieldError();
@@ -82,7 +88,7 @@ public class GlobalExceptionHandler {
         return Result.error("参数校验失败，请检查输入！");
     }
 
-    // 6. 处理 @Validated 或者表单提交的绑定异常（兜底）
+    // 7. 处理表单提交的绑定异常
     @ExceptionHandler(BindException.class)
     public Result<String> handleBindException(BindException e) {
         FieldError fieldError = e.getBindingResult().getFieldError();
@@ -93,21 +99,21 @@ public class GlobalExceptionHandler {
         return Result.error("参数绑定失败，请检查输入！");
     }
 
-    // 7. 🛑【新增】处理上传文件超限异常
+    // 8. 处理上传文件超限异常
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public Result<String> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
         log.warn("文件上传超过大小限制: {}", e.getMessage());
         return Result.error("上传失败：文件大小超出了系统允许的上限（单文件最大 50MB）！");
     }
 
-    // 8. 🛑【新增】处理请求方法不支持异常（比如用 GET 请求 POST 接口）
+    // 9. 处理请求方法不支持异常（比如用 GET 请求 POST 接口）
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public Result<String> handleMethodNotSupportedException(HttpRequestMethodNotSupportedException e) {
         log.warn("请求方式错误: {}", e.getMessage());
         return Result.error("操作失败：请求方式不被支持！");
     }
 
-    // 9. 🛑【新增】处理接口参数缺失异常（比如必填项没传）
+    // 10. 处理接口参数缺失异常
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public Result<String> handleMissingParamException(MissingServletRequestParameterException e) {
         log.warn("缺少必要参数: {}", e.getParameterName());
