@@ -30,6 +30,9 @@
 		<java.version>21</java.version>
 		<!-- 🛑【核心修复】强制指定支持高版本 JDK 的 Lombok 版本 -->
 		<lombok.version>1.18.42</lombok.version>
+		<!-- 测试分组：默认排除 integration 标签（需要 MySQL/Redis 的用例） -->
+		<test.groups></test.groups>
+		<test.excludedGroups>integration</test.excludedGroups>
 	</properties>
 	<dependencies>
 		<!-- Web 依赖 -->
@@ -185,6 +188,17 @@
 				</configuration>
 			</plugin>
 
+			<!-- 测试分组：默认只跑不需要外部依赖的单元测试；
+			     加 -Pintegration 才运行打 @Tag("integration") 的集成测试 -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<groups>${test.groups}</groups>
+					<excludedGroups>${test.excludedGroups}</excludedGroups>
+				</configuration>
+			</plugin>
+
 			<!-- 🛑【核心修复】显式配置 Lombok 注解处理器，解决 mvnw 打包报错 -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
@@ -201,4 +215,15 @@
 			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!-- 只运行集成测试：需要外部 MySQL / Redis，CI 中单独一个 job 使用 -->
+		<profile>
+			<id>integration</id>
+			<properties>
+				<test.groups>integration</test.groups>
+				<test.excludedGroups></test.excludedGroups>
+			</properties>
+		</profile>
+	</profiles>
 </project>

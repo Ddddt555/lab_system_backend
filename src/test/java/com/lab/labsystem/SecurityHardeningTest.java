@@ -1,5 +1,7 @@
 package com.lab.labsystem;
 
+import org.junit.jupiter.api.Tag;
+
 import com.lab.labsystem.common.Result;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS) 
+@Tag("integration")
 public class SecurityHardeningTest {
 
     @Autowired
