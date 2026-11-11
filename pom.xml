@@ -95,6 +95,14 @@
 			<artifactId>spring-boot-resttestclient</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- TestRestTemplate 的自动配置依赖 RestTemplateBuilder，
+		     该类位于 spring-boot-restclient 模块；Boot 4 不再从 classpath 自动推断，
+		     缺少时 @AutoConfigureTestRestTemplate 会导致上下文加载失败 -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-restclient</artifactId>
+			<scope>test</scope>
+		</dependency>
 
 		<!-- MyBatis-Plus -->
 		<dependency>
