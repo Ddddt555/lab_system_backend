@@ -5,11 +5,11 @@ import com.lab.labsystem.service.MustChangePasswordCache;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.extern.slf4j.Slf4j; // 🛑 新增
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.servlet.HandlerInterceptor;
 
-@Slf4j // 🛑 开启日志
+@Slf4j
 public class JwtInterceptor implements HandlerInterceptor {
 
     private final StringRedisTemplate stringRedisTemplate;
@@ -41,21 +41,27 @@ public class JwtInterceptor implements HandlerInterceptor {
             try {
                 Claims claims = JwtUtil.parseToken(token);
 
-                // 【安全加固】只接受 Access Token。
-                // Refresh Token 只能用于 /api/refresh-token 换取新的 Access Token；
-                // 否则 7 天有效期的 Refresh Token 可被直接当作 Access Token 使用，
-                // 使 30 分钟的短效 Access Token 机制完全失效。
+                // 校验令牌类型，仅允许 Access Token 访问业务接口
                 if (!"access".equals(claims.get("type"))) {
-                    log.warn("🚫 拒绝使用非 Access Token 访问接口: {}, type={}",
+                    log.warn("拒绝使用非 Access Token 访问接口: {}, type={}",
                             request.getRequestURI(), claims.get("type"));
                     response.setStatus(401);
                     return false;
                 }
 
                 String jti = claims.getId();
-                
+                // 校验黑名单
                 if (jti != null && Boolean.TRUE.equals(stringRedisTemplate.hasKey("jwt:blacklist:" + jti))) {
-                    log.warn("🚫 试图使用已被拉黑的 Token 访问接口: {}", request.getRequestURI());
+                    log.warn("试图使用已被拉黑的 Token 访问接口: {}", request.getRequestURI());
+                    response.setStatus(401);
+                    return false;
+                }
+
+                // 校验设备指纹，防止 Token 被跨设备盗用
+                String tokenDeviceId = (String) claims.get("deviceId");
+                String requestDeviceId = request.getHeader("X-Device-Id");
+                if (tokenDeviceId != null && requestDeviceId != null && !tokenDeviceId.equals(requestDeviceId)) {
+                    log.warn("设备指纹不匹配，疑似 Token 盗用。Token: {}, Request: {}", tokenDeviceId, requestDeviceId);
                     response.setStatus(401);
                     return false;
                 }
@@ -66,20 +72,15 @@ public class JwtInterceptor implements HandlerInterceptor {
                 request.setAttribute("currentUserNo", userNo);
                 request.setAttribute("currentUserRole", role);
 
-                // =========================================================
-                // 🛑【核心防线】检查用户是否需要强制修改密码
-                // 【性能优化】该标记改为走带 TTL 的缓存，不再每个请求都
-                // 查一次 student/teacher/sys_admin 表。
-                // =========================================================
+                // 校验用户是否需要强制修改密码
                 boolean mustChange = mustChangePasswordCache.isRequired(role, userNo);
-
                 String uri = request.getRequestURI();
                 boolean isWhitelisted = uri.endsWith("/update-password") || 
                                         uri.endsWith("/notice/list") || 
                                         uri.endsWith("/logout");
 
                 if (mustChange && !isWhitelisted) {
-                    log.warn("⚠️ 用户 {} 未修改初始密码，被强制拦截访问: {}", userNo, uri);
+                    log.warn("用户 {} 未修改初始密码，被强制拦截访问: {}", userNo, uri);
                     response.setStatus(403);
                     response.setContentType("application/json;charset=UTF-8");
                     response.getWriter().write("{\"code\":403,\"msg\":\"请先修改初始密码！\",\"data\":null}");
@@ -89,15 +90,13 @@ public class JwtInterceptor implements HandlerInterceptor {
                 return true; 
                 
             } catch (Exception e) {
-                log.error("❌ 解析 Token 失败: {}", e.getMessage());
+                log.error("解析 Token 失败: {}", e.getMessage());
                 response.setStatus(401);
                 return false;
             }
         }
         
-        // =========================================================
-        // ⚠️ 3. 安全规范轨：尝试解析短时效一次性票据 (Ticket)
-        // =========================================================
+        // 解析短时效一次性票据 (Ticket)
         String ticket = request.getParameter("ticket");
         if (ticket != null && !ticket.isEmpty()) {
             String redisKey = "report:ticket:" + ticket;
@@ -114,7 +113,7 @@ public class JwtInterceptor implements HandlerInterceptor {
                 
                 return true;
             } else {
-                log.warn("🚫 试图使用无效或已过期的 Ticket 访问接口: {}", request.getRequestURI());
+                log.warn("试图使用无效或已过期的 Ticket 访问接口: {}", request.getRequestURI());
             }
         }
         

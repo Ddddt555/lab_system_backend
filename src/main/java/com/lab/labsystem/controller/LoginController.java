@@ -39,8 +39,9 @@ public class LoginController {
             @RequestParam String password,
             @RequestParam String captchaKey,
             @RequestParam String captchaCode,
+            @RequestParam(required = false, defaultValue = "web-default") String deviceId,
             HttpServletRequest request) {
-        return Result.success(authService.loginStudent(username, password, captchaKey, captchaCode, request));
+        return Result.success(authService.loginStudent(username, password, captchaKey, captchaCode, deviceId, request));
     }
 
     @Operation(summary = "教师登录")
@@ -50,8 +51,9 @@ public class LoginController {
             @RequestParam String password,
             @RequestParam String captchaKey,
             @RequestParam String captchaCode,
+            @RequestParam(required = false, defaultValue = "web-default") String deviceId,
             HttpServletRequest request) {
-        return Result.success(authService.loginTeacher(username, password, captchaKey, captchaCode, request));
+        return Result.success(authService.loginTeacher(username, password, captchaKey, captchaCode, deviceId, request));
     }
 
     @Operation(summary = "管理员登录")
@@ -61,8 +63,9 @@ public class LoginController {
             @RequestParam String password,
             @RequestParam String captchaKey,
             @RequestParam String captchaCode,
+            @RequestParam(required = false, defaultValue = "web-default") String deviceId,
             HttpServletRequest request) {
-        return Result.success(authService.loginAdmin(username, password, captchaKey, captchaCode, request));
+        return Result.success(authService.loginAdmin(username, password, captchaKey, captchaCode, deviceId, request));
     }
 
     @Operation(summary = "【测试专用】免验证码登录")
@@ -93,12 +96,16 @@ public class LoginController {
     public Result<Object> refreshToken(
             @RequestParam(required = false) String refreshToken,
             @RequestBody(required = false) Map<String, String> body) {
-        // 【安全加固】优先从请求体读取，避免 Refresh Token 出现在 URL 查询串中。
-        // 保留 query 参数作为兼容入口，但前端已改为走请求体。
+        // 优先从请求体读取，避免 Refresh Token 出现在 URL 查询串中。
+        // 保留 query 参数作为兼容入口。
         String token = refreshToken;
-        if (token == null && body != null) {
-            token = body.get("refreshToken");
+        String deviceId = null;
+        if (body != null) {
+            if (token == null) {
+                token = body.get("refreshToken");
+            }
+            deviceId = body.get("deviceId");
         }
-        return Result.success(authService.refreshToken(token));
+        return Result.success(authService.refreshToken(token, deviceId));
     }
 }

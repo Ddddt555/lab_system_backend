@@ -24,13 +24,13 @@ public class JwtUtil {
     @Value("${jwt.secret}")
     public void setSecret(String secret) { JwtUtil.secret = secret; }
 
-    // 🛑 访问令牌（Access Token）过期时间，默认 30 分钟
+    // 访问令牌（Access Token）过期时间，默认 30 分钟
     @Value("${jwt.access-expire-minutes:30}")
     public void setAccessExpireMinutes(long minutes) {
         JwtUtil.accessExpireMillis = minutes * 60 * 1000;
     }
 
-    // 🛑 刷新令牌（Refresh Token）过期时间，默认 7 天
+    // 刷新令牌（Refresh Token）过期时间，默认 7 天
     @Value("${jwt.refresh-expire-days:7}")
     public void setRefreshExpireDays(long days) {
         JwtUtil.refreshExpireMillis = days * 24 * 60 * 60 * 1000;
@@ -45,12 +45,13 @@ public class JwtUtil {
     }
 
     // 签发短效 Access Token
-    public static String generateAccessToken(String username, String role) {
+    public static String generateAccessToken(String username, String role, String deviceId) {
         return Jwts.builder()
                 .setId(UUID.randomUUID().toString())
                 .setSubject(username)
                 .claim("role", role)
                 .claim("type", "access") // 标识类型
+                .claim("deviceId", deviceId) // 绑定设备指纹
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + accessExpireMillis))
                 .signWith(key, SignatureAlgorithm.HS256)
@@ -58,12 +59,13 @@ public class JwtUtil {
     }
 
     // 签发长效 Refresh Token
-    public static String generateRefreshToken(String username, String role) {
+    public static String generateRefreshToken(String username, String role, String deviceId) {
         return Jwts.builder()
                 .setId(UUID.randomUUID().toString())
                 .setSubject(username)
                 .claim("role", role)
                 .claim("type", "refresh") // 标识类型
+                .claim("deviceId", deviceId) // 绑定设备指纹
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + refreshExpireMillis))
                 .signWith(key, SignatureAlgorithm.HS256)
