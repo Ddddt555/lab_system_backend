@@ -131,7 +131,7 @@ jobs:
         image-ref: ${{ secrets.DOCKER_USERNAME }}/labsystem:${{ github.sha }}
         format: 'table'
         # 发现 CRITICAL 或 HIGH 级别漏洞时，退出码设为 1，阻断流水线
-        exit-code: '0'
+        exit-code: '1'
         ignore-unfixed: true
         vuln-type: 'os,library'
         severity: 'CRITICAL,HIGH'
