@@ -6,6 +6,7 @@ import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.entity.ExpProject;
 import com.lab.labsystem.entity.TeachClass;
 import com.lab.labsystem.mapper.ExpProjectMapper;
+import com.lab.labsystem.mapper.ExpSessionMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.service.MinioService;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +39,7 @@ class TeacherProjectServiceImplTest {
 
     private TeachClassMapper teachClassMapper;
     private ExpProjectMapper projectMapper;
+    private ExpSessionMapper sessionMapper;
     private MinioService minioService;
     private NumberGenerator numberGenerator;
     private TeacherProjectServiceImpl service;
@@ -46,10 +48,11 @@ class TeacherProjectServiceImplTest {
     void setUp() {
         teachClassMapper = mock(TeachClassMapper.class);
         projectMapper = mock(ExpProjectMapper.class);
+        sessionMapper = mock(ExpSessionMapper.class);
         minioService = mock(MinioService.class);
         numberGenerator = mock(NumberGenerator.class);
 
-        service = new TeacherProjectServiceImpl(teachClassMapper, projectMapper, minioService, numberGenerator);
+        service = new TeacherProjectServiceImpl(teachClassMapper, projectMapper, sessionMapper, minioService, numberGenerator);
     }
 
     private static MockMultipartFile pdf() {
@@ -178,5 +181,82 @@ class TeacherProjectServiceImplTest {
 
         assertEquals("文件格式非法！", e.getMessage());
         verify(minioService, never()).upload(any(), anyString());
+    }
+
+    // ================= 新增的删除项目测试 =================
+
+    @Test
+    @DisplayName("项目不存在时拒绝删除")
+    void deleteProjectRejectsMissingProject() {
+        when(projectMapper.selectById("P404")).thenReturn(null);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.deleteProject("P404", "T001"));
+
+        assertEquals("实验项目不存在！", e.getMessage());
+        verify(projectMapper, never()).deleteById(anyString());
+    }
+
+    @Test
+    @DisplayName("不能删除其他教师的项目")
+    void deleteProjectRejectsOtherTeacher() {
+        ExpProject project = new ExpProject();
+        project.setProjectNo("P001");
+        project.setClassNo("C001");
+        when(projectMapper.selectById("P001")).thenReturn(project);
+
+        TeachClass tc = new TeachClass();
+        tc.setWorkNo("T999");
+        when(teachClassMapper.selectById("C001")).thenReturn(tc);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.deleteProject("P001", "T001"));
+
+        assertEquals("非法操作：您无权删除该项目！", e.getMessage());
+        verify(projectMapper, never()).deleteById(anyString());
+    }
+
+    @Test
+    @DisplayName("项目下存在排课时拒绝删除")
+    void deleteProjectRejectsWhenHasSessions() {
+        ExpProject project = new ExpProject();
+        project.setProjectNo("P001");
+        project.setClassNo("C001");
+        when(projectMapper.selectById("P001")).thenReturn(project);
+
+        TeachClass tc = new TeachClass();
+        tc.setWorkNo("T001");
+        when(teachClassMapper.selectById("C001")).thenReturn(tc);
+
+        // 模拟该场次下还有 3 个排课
+        when(sessionMapper.selectCount(any())).thenReturn(3L);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.deleteProject("P001", "T001"));
+
+        assertEquals("该项目下还有 3 个实验场次，请先取消排课后再删除！", e.getMessage());
+        verify(projectMapper, never()).deleteById(anyString());
+    }
+
+    @Test
+    @DisplayName("删除成功并清理指导书文件")
+    void deleteProjectSuccess() {
+        ExpProject project = new ExpProject();
+        project.setProjectNo("P001");
+        project.setClassNo("C001");
+        project.setGuideFile("test-guide.pdf");
+        when(projectMapper.selectById("P001")).thenReturn(project);
+
+        TeachClass tc = new TeachClass();
+        tc.setWorkNo("T001");
+        when(teachClassMapper.selectById("C001")).thenReturn(tc);
+
+        when(sessionMapper.selectCount(any())).thenReturn(0L);
+
+        String msg = service.deleteProject("P001", "T001");
+
+        assertEquals("实验项目删除成功！", msg);
+        verify(projectMapper).deleteById("P001");
+        verify(minioService).remove("test-guide.pdf");
     }
 }

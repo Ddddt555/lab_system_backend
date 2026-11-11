@@ -7,7 +7,7 @@ import org.springframework.web.multipart.MultipartFile;
  * 教师端实验项目管理。
  *
  * <p>从 {@code TeacherController} 下沉出来的：项目列表（仅限本人教学班）、
- * 发布项目（校验教学班归属）、上传指导书（格式+魔数校验、MinIO 上传与失败回滚）。
+ * 发布项目（校验教学班归属）、上传指导书（格式+魔数校验、MinIO 上传与失败回滚）、删除项目。
  */
 public interface TeacherProjectService {
 
@@ -33,4 +33,14 @@ public interface TeacherProjectService {
      * @throws com.lab.labsystem.common.BusinessException 文件为空/格式非法/无权操作/上传失败
      */
     String uploadGuide(MultipartFile file, String projectNo, String workNo);
+
+    /**
+     * 删除实验项目。
+     *
+     * @param projectNo 项目号
+     * @param workNo 当前操作的教师工号
+     * @return 成功提示
+     * @throws com.lab.labsystem.common.BusinessException 项目不存在/无权操作/存在关联场次
+     */
+    String deleteProject(String projectNo, String workNo);
 }

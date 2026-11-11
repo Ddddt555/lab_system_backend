@@ -96,6 +96,14 @@ public class TeacherController {
         return Result.success(teacherProjectService.uploadGuide(file, projectNo, currentWorkNo));
     }
 
+    @Operation(summary = "删除实验项目", description = "如果项目下还有已排课的场次，则拒绝删除")
+    @LogRecord("删除实验项目")
+    @DeleteMapping("/project/delete")
+    public Result<String> deleteProject(@RequestParam String projectNo, HttpServletRequest request) {
+        String currentWorkNo = (String) request.getAttribute("currentUserNo");
+        return Result.success(teacherProjectService.deleteProject(projectNo, currentWorkNo));
+    }
+
     // ================= 2. 实验场次安排 =================
     @Operation(summary = "安排实验场次", description = "包含教师时间冲突、实验室占用、教学班冲突等多重校验")
     @LogRecord("安排实验场次")

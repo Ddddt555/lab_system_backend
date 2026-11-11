@@ -1,4 +1,4 @@
-package com.lab.labsystem.config;
+/*package com.lab.labsystem.config;
 
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -26,4 +26,4 @@ public class JacksonConfig {
         builder.featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         return builder;
     }
-}
+}*/

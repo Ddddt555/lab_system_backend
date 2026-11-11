@@ -8,8 +8,10 @@ import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.entity.ExpProject;
+import com.lab.labsystem.entity.ExpSession;
 import com.lab.labsystem.entity.TeachClass;
 import com.lab.labsystem.mapper.ExpProjectMapper;
+import com.lab.labsystem.mapper.ExpSessionMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.service.MinioService;
 import com.lab.labsystem.service.TeacherProjectService;
@@ -32,15 +34,18 @@ public class TeacherProjectServiceImpl implements TeacherProjectService {
 
     private final TeachClassMapper teachClassMapper;
     private final ExpProjectMapper projectMapper;
+    private final ExpSessionMapper sessionMapper;
     private final MinioService minioService;
     private final NumberGenerator numberGenerator;
 
     public TeacherProjectServiceImpl(TeachClassMapper teachClassMapper,
                                      ExpProjectMapper projectMapper,
+                                     ExpSessionMapper sessionMapper,
                                      MinioService minioService,
                                      NumberGenerator numberGenerator) {
         this.teachClassMapper = teachClassMapper;
         this.projectMapper = projectMapper;
+        this.sessionMapper = sessionMapper;
         this.minioService = minioService;
         this.numberGenerator = numberGenerator;
     }
@@ -131,5 +136,37 @@ public class TeacherProjectServiceImpl implements TeacherProjectService {
             minioService.remove(newFileName);
             throw new RuntimeException("数据库更新失败，请重试！", e);
         }
+    }
+
+    @Override
+    public String deleteProject(String projectNo, String workNo) {
+        ExpProject project = projectMapper.selectById(projectNo);
+        if (project == null) {
+            throw new BusinessException("实验项目不存在！");
+        }
+
+        TeachClass tc = teachClassMapper.selectById(project.getClassNo());
+        if (tc == null || !workNo.equals(tc.getWorkNo())) {
+            throw new BusinessException("非法操作：您无权删除该项目！");
+        }
+
+        long sessionCount = sessionMapper.selectCount(
+                new QueryWrapper<ExpSession>().eq("project_no", projectNo)
+        );
+        if (sessionCount > 0) {
+            throw new BusinessException("该项目下还有 " + sessionCount + " 个实验场次，请先取消排课后再删除！");
+        }
+
+        projectMapper.deleteById(projectNo);
+
+        if (project.getGuideFile() != null && !project.getGuideFile().isEmpty()) {
+            try {
+                minioService.remove(project.getGuideFile());
+            } catch (Exception e) {
+                log.warn("删除项目指导书文件失败，交由定时任务清理: {}", project.getGuideFile());
+            }
+        }
+
+        return "实验项目删除成功！";
     }
 }

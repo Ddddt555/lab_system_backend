@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.3.11</version>
+		<version>4.0.6</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.lab</groupId>
@@ -28,19 +28,8 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
-		<!-- 🛑【核心修复】强制指定支持高版本 JDK 的 Lombok 版本 -->
 		<lombok.version>1.18.42</lombok.version>
-
-		<!-- ============================================================
-		     安全加固：覆盖 Spring Boot 3.3 托管的依赖版本，修复 Trivy 报告的 CVE
-		     这些属性由 spring-boot-dependencies 定义，此处覆盖生效
-		     ============================================================ -->
-		<!-- Tomcat 10.1.40 -> 10.1.58：修复 HTTP/2 头校验、请求走私、DoS 等 -->
-		<tomcat.version>10.1.61</tomcat.version>
-		<!-- Netty 4.1.119 -> 4.1.137：修复 SNI 绕过、DNS 解析、压缩解码等 -->
-		<netty.version>4.1.140.Final</netty.version>
-		<!-- Jackson 2.17.3 -> 2.18.11：修复多态反序列化绕过、正则回溯 DoS 等 -->
-		<jackson-bom.version>2.18.12</jackson-bom.version>
+		
 		<!-- 测试分组：默认排除 integration 标签（需要 MySQL/Redis 的用例） -->
 		<test.groups></test.groups>
 		<test.excludedGroups>integration</test.excludedGroups>
@@ -50,6 +39,13 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+
+		<!-- Springdoc OpenAPI (替代 Knife4j) -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>3.0.0</version>
 		</dependency>
 
 		<!-- MySQL 驱动 -->
@@ -77,9 +73,15 @@
 		<!-- MyBatis-Plus -->
 		<dependency>
 			<groupId>com.baomidou</groupId>
-			<artifactId>mybatis-plus-spring-boot3-starter</artifactId>
-			<version>3.5.7</version>
+			<artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+			<version>3.5.18</version>
 		</dependency>
+
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
+            <version>3.5.18</version>
+        </dependency>
 
 		<!-- Spring Security 密码加密模块 -->
 		<dependency>
@@ -87,11 +89,12 @@
 			<artifactId>spring-security-crypto</artifactId>
 		</dependency>
 
-		<!-- ⚠️ AOP 切面依赖（移到了里面） -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-aop</artifactId>
-		</dependency>
+		<!-- AOP 切面依赖 (Spring Boot 4 中更名为 aspectj) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aspectj</artifactId>
+        </dependency>
+		
 		<!-- JWT 依赖 -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
@@ -110,46 +113,41 @@
 			<version>0.11.5</version>
 			<scope>runtime</scope>
 		</dependency>
+
 		<dependency>
 			<groupId>cn.hutool</groupId>
 			<artifactId>hutool-captcha</artifactId>
 			<version>5.8.25</version>
 		</dependency>
+		
 		<!-- EasyExcel 依赖 -->
         <dependency>
             <groupId>com.alibaba</groupId>
             <artifactId>easyexcel</artifactId>
             <version>3.3.4</version>
         </dependency>
-                <!-- Knife4j 接口文档 -->
-        <dependency>
-            <groupId>com.github.xiaoymin</groupId>
-            <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
-            <version>4.5.0</version>
-        </dependency>
-                <!-- Guava 限流工具 -->
+
+        <!-- Guava 限流工具 -->
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
             <version>33.7.2-jre</version>
         </dependency>
+        
         <!-- Spring Boot 整合 Redis -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
-        <!-- Redisson (用于后续的分布式限流，先提前引入，避免后续再下依赖) -->
+        
+        <!-- Redisson -->
         <dependency>
             <groupId>org.redisson</groupId>
             <artifactId>redisson-spring-boot-starter</artifactId>
-            <version>3.35.0</version>
+            <version>4.0.0</version>
         </dependency>
-        <!-- ============================================================
-             传递依赖的安全覆盖：
-             - commons-io 2.11.0 由 easyexcel-core 传入，存在 XML 解析 DoS
-             - snappy-java 1.1.8.4 由 minio 传入，存在解压内存耗尽/缓冲区溢出
-             显式声明高版本，Maven 就近解析会覆盖传递版本
-             ============================================================ -->
+
+        <!-- 传递依赖的安全覆盖 -->
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
@@ -161,12 +159,12 @@
             <version>1.1.10.9</version>
         </dependency>
 
+        <!-- Minio 及补充依赖 -->
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
             <version>8.6.0</version>
             <exclusions>
-                <!-- snappy 由下方统一管理，避免旧版本被传递引入 -->
                 <exclusion>
                     <groupId>org.xerial.snappy</groupId>
                     <artifactId>snappy-java</artifactId>
@@ -174,17 +172,23 @@
             </exclusions>
         </dependency>
         <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>4.12.0</version>
+        </dependency>
+        
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
 
-        <!-- Actuator 基础依赖 (合并为一个) -->
+        <!-- Actuator 基础依赖 -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
-        <!-- 🛑【核心修复】Prometheus 监控指标暴露，必须加 runtime 作用域 -->
+        <!-- Prometheus 监控指标暴露 -->
 		<dependency>
 			<groupId>io.micrometer</groupId>
 			<artifactId>micrometer-registry-prometheus</artifactId>
@@ -196,7 +200,7 @@
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>
 		</dependency>
-		<!-- Flyway 对 MySQL 的扩展支持 (Spring Boot 3 必须显式引入) -->
+		<!-- Flyway 对 MySQL 的扩展支持 -->
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-mysql</artifactId>
@@ -223,8 +227,6 @@
 				</configuration>
 			</plugin>
 
-			<!-- 测试分组：默认只跑不需要外部依赖的单元测试；
-			     加 -Pintegration 才运行打 @Tag("integration") 的集成测试 -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
@@ -234,7 +236,6 @@
 				</configuration>
 			</plugin>
 
-			<!-- 🛑【核心修复】显式配置 Lombok 注解处理器，解决 mvnw 打包报错 -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
@@ -252,7 +253,6 @@
 	</build>
 
 	<profiles>
-		<!-- 只运行集成测试：需要外部 MySQL / Redis，CI 中单独一个 job 使用 -->
 		<profile>
 			<id>integration</id>
 			<properties>
