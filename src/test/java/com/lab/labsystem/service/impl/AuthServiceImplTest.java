@@ -38,15 +38,11 @@ import static org.mockito.Mockito.when;
 
 /**
  * 登录链路的单元测试。
- *
- * <p>覆盖三类高风险行为：
- * <ol>
- *   <li>锁定策略的先后顺序（锁定检查在验证码之前）；</li>
- *   <li>失败计数的累加与达到阈值时的提示替换；</li>
- *   <li>刷新令牌的类型校验与 Redis 一致性校验。</li>
- * </ol>
  */
 class AuthServiceImplTest {
+
+    /** 测试用设备 ID，与 Redis Key 拼接保持一致 */
+    private static final String DEVICE_ID = "test-device";
 
     private StudentMapper studentMapper;
     private CaptchaService captchaService;
@@ -57,10 +53,8 @@ class AuthServiceImplTest {
 
     @BeforeAll
     static void initJwt() {
-        // JwtUtil 通过 @Value 注入密钥，这里手动初始化以便签发/解析令牌
         JwtUtil util = new JwtUtil();
         util.setSecret("0123456789abcdef0123456789abcdef");
-        // 过期时间同样是 @Value 注入的静态字段，不设置会签发出"立即过期"的令牌
         util.setAccessExpireMinutes(30);
         util.setRefreshExpireDays(7);
         util.init();
@@ -75,7 +69,6 @@ class AuthServiceImplTest {
         ops = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(ops);
 
-        // 显式声明"当前不是 prod"，避免 mock 默认 false 造成假绿
         environment = mock(Environment.class);
         when(environment.acceptsProfiles(any(Profiles.class))).thenReturn(false);
 
@@ -105,7 +98,7 @@ class AuthServiceImplTest {
         when(ops.get("login:fail:student:S001")).thenReturn("5");
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.loginStudent("S001", "pwd", "k", "c", request()));
+                () -> service.loginStudent("S001", "pwd", "k", "c", DEVICE_ID, request()));
 
         assertEquals("密码错误次数过多，账号已被锁定 10 分钟，请稍后再试！", e.getMessage());
         verify(captchaService, never()).verifyCaptcha(anyString(), anyString());
@@ -118,7 +111,7 @@ class AuthServiceImplTest {
         when(captchaService.verifyCaptcha("k", "c")).thenReturn(false);
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.loginStudent("S001", "pwd", "k", "c", request()));
+                () -> service.loginStudent("S001", "pwd", "k", "c", DEVICE_ID, request()));
 
         assertEquals("验证码错误或已过期，请重新输入！", e.getMessage());
         verify(studentMapper, never()).selectOne(any());
@@ -132,7 +125,7 @@ class AuthServiceImplTest {
         when(studentMapper.selectOne(any())).thenReturn(null);
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.loginStudent("S404", "pwd", "k", "c", request()));
+                () -> service.loginStudent("S404", "pwd", "k", "c", DEVICE_ID, request()));
 
         assertEquals("学号或密码错误！", e.getMessage());
     }
@@ -153,7 +146,7 @@ class AuthServiceImplTest {
         setEncoder(encoder);
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.loginStudent("S001", "bad", "k", "c", request()));
+                () -> service.loginStudent("S001", "bad", "k", "c", DEVICE_ID, request()));
 
         assertEquals("学号或密码错误！", e.getMessage());
         verify(redis).expire(eq("login:fail:student:S001"), any());
@@ -175,7 +168,7 @@ class AuthServiceImplTest {
         setEncoder(encoder);
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.loginStudent("S001", "bad", "k", "c", request()));
+                () -> service.loginStudent("S001", "bad", "k", "c", DEVICE_ID, request()));
 
         assertEquals("密码错误次数过多，账号已被锁定 10 分钟，请稍后再试！", e.getMessage());
     }
@@ -196,22 +189,23 @@ class AuthServiceImplTest {
         when(encoder.matches("good", "hash")).thenReturn(true);
         setEncoder(encoder);
 
-        Map<String, Object> data = service.loginStudent("S001", "good", "k", "c", request());
+        Map<String, Object> data = service.loginStudent("S001", "good", "k", "c", DEVICE_ID, request());
 
         assertNotNull(data.get("token"));
         assertNotNull(data.get("refreshToken"));
         assertNotNull(data.get("user"));
-        verify(ops).set(eq("refresh_token:S001"), anyString(), any());
+        // Redis Key 现在带上了 deviceId
+        verify(ops).set(eq("refresh_token:S001:" + DEVICE_ID), anyString(), any());
         verify(redis).delete("login:fail:student:S001");
     }
 
     @Test
     @DisplayName("刷新令牌类型必须是 refresh")
     void refreshRejectsAccessToken() {
-        String accessToken = JwtUtil.generateAccessToken("S001", "student");
+        String accessToken = JwtUtil.generateAccessToken("S001", "student", DEVICE_ID);
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.refreshToken(accessToken));
+                () -> service.refreshToken(accessToken, DEVICE_ID));
 
         assertEquals("无效的刷新令牌类型！", e.getMessage());
     }
@@ -219,25 +213,27 @@ class AuthServiceImplTest {
     @Test
     @DisplayName("刷新令牌与 Redis 不一致时拒绝")
     void refreshRejectsMismatch() {
-        String refreshToken = JwtUtil.generateRefreshToken("S001", "student");
-        when(ops.get("refresh_token:S001")).thenReturn("another-token");
+        String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
+        when(ops.get("refresh_token:S001:" + DEVICE_ID)).thenReturn("another-token");
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.refreshToken(refreshToken));
+                () -> service.refreshToken(refreshToken, DEVICE_ID));
 
-        assertEquals("刷新令牌已失效，请重新登录！", e.getMessage());
+        assertEquals("安全警告：检测到异常刷新操作，已被强制下线，请重新登录！", e.getMessage());
     }
 
     @Test
-    @DisplayName("刷新成功时返回新的 access token 并续期")
+    @DisplayName("刷新成功时返回新的双 Token 并续期")
     void refreshSuccess() {
-        String refreshToken = JwtUtil.generateRefreshToken("S001", "student");
-        when(ops.get("refresh_token:S001")).thenReturn(refreshToken);
+        String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
+        when(ops.get("refresh_token:S001:" + DEVICE_ID)).thenReturn(refreshToken);
 
-        Map<String, Object> data = service.refreshToken(refreshToken);
+        Map<String, Object> data = service.refreshToken(refreshToken, DEVICE_ID);
 
         assertNotNull(data.get("token"));
-        verify(redis).expire(eq("refresh_token:S001"), any());
+        assertNotNull(data.get("refreshToken"));
+        // 现在写的是带 deviceId 的 Key
+        verify(ops).set(eq("refresh_token:S001:" + DEVICE_ID), anyString(), any());
     }
 
     @Test
@@ -270,8 +266,8 @@ class AuthServiceImplTest {
         assertEquals("【测试接口已禁用】请勿在生产环境尝试非法登录！", e.getMessage());
     }
 
-    @Test
     @DisplayName("非法角色被拒绝")
+    @Test
     void rejectTestLoginWithUnknownRole() {
         ReflectionTestUtils.setField(service, "testLoginEnabled", true);
 
@@ -282,7 +278,6 @@ class AuthServiceImplTest {
     }
 
     private void setEncoder(BCryptPasswordEncoder encoder) {
-        // 用反射替换 passwordEncoder，避免为了测试重写构造参数顺序
         org.springframework.test.util.ReflectionTestUtils.setField(service, "passwordEncoder", encoder);
     }
 }
