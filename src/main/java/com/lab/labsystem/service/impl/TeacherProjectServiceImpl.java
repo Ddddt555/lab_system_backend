@@ -8,9 +8,11 @@ import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.entity.ExpProject;
+import com.lab.labsystem.entity.ExpReport;
 import com.lab.labsystem.entity.ExpSession;
 import com.lab.labsystem.entity.TeachClass;
 import com.lab.labsystem.mapper.ExpProjectMapper;
+import com.lab.labsystem.mapper.ExpReportMapper;
 import com.lab.labsystem.mapper.ExpSessionMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.service.MinioService;
@@ -35,17 +37,20 @@ public class TeacherProjectServiceImpl implements TeacherProjectService {
     private final TeachClassMapper teachClassMapper;
     private final ExpProjectMapper projectMapper;
     private final ExpSessionMapper sessionMapper;
+    private final ExpReportMapper reportMapper;
     private final MinioService minioService;
     private final NumberGenerator numberGenerator;
 
     public TeacherProjectServiceImpl(TeachClassMapper teachClassMapper,
                                      ExpProjectMapper projectMapper,
                                      ExpSessionMapper sessionMapper,
+                                     ExpReportMapper reportMapper,
                                      MinioService minioService,
                                      NumberGenerator numberGenerator) {
         this.teachClassMapper = teachClassMapper;
         this.projectMapper = projectMapper;
         this.sessionMapper = sessionMapper;
+        this.reportMapper = reportMapper;
         this.minioService = minioService;
         this.numberGenerator = numberGenerator;
     }
@@ -155,6 +160,16 @@ public class TeacherProjectServiceImpl implements TeacherProjectService {
         );
         if (sessionCount > 0) {
             throw new BusinessException("该项目下还有 " + sessionCount + " 个实验场次，请先取消排课后再删除！");
+        }
+
+        // 【引用检查】学生报告通过 project_no 关联项目。
+        // 场次可能已被取消，但报告仍在 —— 此时直接删项目会让报告变成孤儿数据，
+        // 学生的"报告版本历史"仍按 projectNo 查询，却对不上任何项目。
+        long reportCount = reportMapper.selectCount(
+                new QueryWrapper<ExpReport>().eq("project_no", projectNo)
+        );
+        if (reportCount > 0) {
+            throw new BusinessException("该项目下还有 " + reportCount + " 份学生报告，请先处理后再删除！");
         }
 
         projectMapper.deleteById(projectNo);
