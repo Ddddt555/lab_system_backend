@@ -3,6 +3,8 @@ package com.lab.labsystem.service.impl;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.CaptchaService;
 import com.lab.labsystem.common.JwtUtil;
+import com.lab.labsystem.dto.request.LoginDTO;
+import com.lab.labsystem.dto.request.RefreshTokenDTO;
 import com.lab.labsystem.entity.Student;
 import com.lab.labsystem.mapper.StudentMapper;
 import com.lab.labsystem.mapper.SysAdminMapper;
@@ -72,7 +74,6 @@ class AuthServiceImplTest {
         zSetOps = mock(ZSetOperations.class);
 
         when(redis.opsForValue()).thenReturn(ops);
-        // 关键修复：补齐 ZSetOperations 的 mock，避免 opsForZSet() 返回 null
         when(redis.opsForZSet()).thenReturn(zSetOps);
 
         environment = mock(Environment.class);
@@ -98,13 +99,24 @@ class AuthServiceImplTest {
         return request;
     }
 
+    /** 辅助方法：快速构建 LoginDTO */
+    private LoginDTO buildLoginDTO(String username, String password, String captchaKey, String captchaCode) {
+        LoginDTO dto = new LoginDTO();
+        dto.setUsername(username);
+        dto.setPassword(password);
+        dto.setCaptchaKey(captchaKey);
+        dto.setCaptchaCode(captchaCode);
+        dto.setDeviceId(DEVICE_ID);
+        return dto;
+    }
+
     @Test
     @DisplayName("账号已锁定时直接拒绝，不再校验验证码")
     void rejectWhenLocked() {
         when(ops.get("login:fail:student:S001")).thenReturn("5");
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.loginStudent("S001", "pwd", "k", "c", DEVICE_ID, request()));
+                () -> service.loginStudent(buildLoginDTO("S001", "pwd", "k", "c"), request()));
 
         assertEquals("密码错误次数过多，账号已被锁定 10 分钟，请稍后再试！", e.getMessage());
         verify(captchaService, never()).verifyCaptcha(anyString(), anyString());
@@ -117,7 +129,7 @@ class AuthServiceImplTest {
         when(captchaService.verifyCaptcha("k", "c")).thenReturn(false);
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.loginStudent("S001", "pwd", "k", "c", DEVICE_ID, request()));
+                () -> service.loginStudent(buildLoginDTO("S001", "pwd", "k", "c"), request()));
 
         assertEquals("验证码错误或已过期，请重新输入！", e.getMessage());
         verify(studentMapper, never()).selectOne(any());
@@ -131,7 +143,7 @@ class AuthServiceImplTest {
         when(studentMapper.selectOne(any())).thenReturn(null);
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.loginStudent("S404", "pwd", "k", "c", DEVICE_ID, request()));
+                () -> service.loginStudent(buildLoginDTO("S404", "pwd", "k", "c"), request()));
 
         assertEquals("学号或密码错误！", e.getMessage());
     }
@@ -152,7 +164,7 @@ class AuthServiceImplTest {
         setEncoder(encoder);
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.loginStudent("S001", "bad", "k", "c", DEVICE_ID, request()));
+                () -> service.loginStudent(buildLoginDTO("S001", "bad", "k", "c"), request()));
 
         assertEquals("学号或密码错误！", e.getMessage());
         verify(redis).expire(eq("login:fail:student:S001"), any());
@@ -174,7 +186,7 @@ class AuthServiceImplTest {
         setEncoder(encoder);
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.loginStudent("S001", "bad", "k", "c", DEVICE_ID, request()));
+                () -> service.loginStudent(buildLoginDTO("S001", "bad", "k", "c"), request()));
 
         assertEquals("密码错误次数过多，账号已被锁定 10 分钟，请稍后再试！", e.getMessage());
     }
@@ -195,12 +207,11 @@ class AuthServiceImplTest {
         when(encoder.matches("good", "hash")).thenReturn(true);
         setEncoder(encoder);
 
-        Map<String, Object> data = service.loginStudent("S001", "good", "k", "c", DEVICE_ID, request());
+        Map<String, Object> data = service.loginStudent(buildLoginDTO("S001", "good", "k", "c"), request());
 
         assertNotNull(data.get("token"));
         assertNotNull(data.get("refreshToken"));
         assertNotNull(data.get("user"));
-        // Redis Key 现在带上了 deviceId
         verify(ops).set(eq("refresh_token:S001:" + DEVICE_ID), anyString(), any());
         verify(redis).delete("login:fail:student:S001");
     }
@@ -210,8 +221,12 @@ class AuthServiceImplTest {
     void refreshRejectsAccessToken() {
         String accessToken = JwtUtil.generateAccessToken("S001", "student", DEVICE_ID);
 
+        RefreshTokenDTO dto = new RefreshTokenDTO();
+        dto.setRefreshToken(accessToken);
+        dto.setDeviceId(DEVICE_ID);
+
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.refreshToken(accessToken, DEVICE_ID));
+                () -> service.refreshToken(dto));
 
         assertEquals("无效的刷新令牌类型！", e.getMessage());
     }
@@ -222,8 +237,12 @@ class AuthServiceImplTest {
         String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
         when(ops.get("refresh_token:S001:" + DEVICE_ID)).thenReturn("another-token");
 
+        RefreshTokenDTO dto = new RefreshTokenDTO();
+        dto.setRefreshToken(refreshToken);
+        dto.setDeviceId(DEVICE_ID);
+
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.refreshToken(refreshToken, DEVICE_ID));
+                () -> service.refreshToken(dto));
 
         assertEquals("安全警告：检测到异常刷新操作，已被强制下线，请重新登录！", e.getMessage());
     }
@@ -234,11 +253,14 @@ class AuthServiceImplTest {
         String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
         when(ops.get("refresh_token:S001:" + DEVICE_ID)).thenReturn(refreshToken);
 
-        Map<String, Object> data = service.refreshToken(refreshToken, DEVICE_ID);
+        RefreshTokenDTO dto = new RefreshTokenDTO();
+        dto.setRefreshToken(refreshToken);
+        dto.setDeviceId(DEVICE_ID);
+
+        Map<String, Object> data = service.refreshToken(dto);
 
         assertNotNull(data.get("token"));
         assertNotNull(data.get("refreshToken"));
-        // 现在写的是带 deviceId 的 Key
         verify(ops).set(eq("refresh_token:S001:" + DEVICE_ID), anyString(), any());
     }
 

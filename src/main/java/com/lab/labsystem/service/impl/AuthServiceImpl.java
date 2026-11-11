@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.CaptchaService;
 import com.lab.labsystem.common.JwtUtil;
+import com.lab.labsystem.dto.request.LoginDTO;
+import com.lab.labsystem.dto.request.RefreshTokenDTO;
 import com.lab.labsystem.entity.Student;
 import com.lab.labsystem.entity.SysAdmin;
 import com.lab.labsystem.entity.SysLog;
@@ -43,9 +45,9 @@ public class AuthServiceImpl implements AuthService {
     private static final String REFRESH_TOKEN_PREFIX = "refresh_token:";
     private static final String BLACKLIST_PREFIX = "jwt:blacklist:";
     private static final String WS_TICKET_PREFIX = "ws:ticket:";
-    private static final String USER_DEVICES_PREFIX = "user:devices:"; // 记录用户活跃设备
+    private static final String USER_DEVICES_PREFIX = "user:devices:";
 
-    private static final int MAX_DEVICES = 5; // 最大允许同时在线的设备数
+    private static final int MAX_DEVICES = 5;
 
     private static final Duration REFRESH_TOKEN_TTL = Duration.ofDays(7);
     private static final Duration LOCK_TTL = Duration.ofMinutes(10);
@@ -90,11 +92,12 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public Map<String, Object> loginStudent(String username, String password,
-                                            String captchaKey, String captchaCode,
-                                            String deviceId, HttpServletRequest request) {
+    public Map<String, Object> loginStudent(LoginDTO dto, HttpServletRequest request) {
+        String username = dto.getUsername();
+        String password = dto.getPassword();
+        
         checkAccountLocked("student", username);
-        verifyCaptcha(captchaKey, captchaCode);
+        verifyCaptcha(dto.getCaptchaKey(), dto.getCaptchaCode());
 
         Student student = studentMapper.selectOne(
                 new QueryWrapper<Student>().eq("student_no", username));
@@ -113,15 +116,16 @@ public class AuthServiceImpl implements AuthService {
         saveLoginLog("学生-" + username, "登录成功", request);
 
         return issueTokens(student.getStudentNo(), student.getName(), "student",
-                isMustChange(student.getMustChangePassword()), deviceId);
+                isMustChange(student.getMustChangePassword()), dto.getDeviceId());
     }
 
     @Override
-    public Map<String, Object> loginTeacher(String username, String password,
-                                            String captchaKey, String captchaCode,
-                                            String deviceId, HttpServletRequest request) {
+    public Map<String, Object> loginTeacher(LoginDTO dto, HttpServletRequest request) {
+        String username = dto.getUsername();
+        String password = dto.getPassword();
+        
         checkAccountLocked("teacher", username);
-        verifyCaptcha(captchaKey, captchaCode);
+        verifyCaptcha(dto.getCaptchaKey(), dto.getCaptchaCode());
 
         Teacher teacher = teacherMapper.selectOne(
                 new QueryWrapper<Teacher>().eq("work_no", username));
@@ -140,15 +144,16 @@ public class AuthServiceImpl implements AuthService {
         saveLoginLog("教师-" + username, "登录成功", request);
 
         return issueTokens(teacher.getWorkNo(), teacher.getName(), "teacher",
-                isMustChange(teacher.getMustChangePassword()), deviceId);
+                isMustChange(teacher.getMustChangePassword()), dto.getDeviceId());
     }
 
     @Override
-    public Map<String, Object> loginAdmin(String username, String password,
-                                          String captchaKey, String captchaCode,
-                                          String deviceId, HttpServletRequest request) {
+    public Map<String, Object> loginAdmin(LoginDTO dto, HttpServletRequest request) {
+        String username = dto.getUsername();
+        String password = dto.getPassword();
+        
         checkAccountLocked("admin", username);
-        verifyCaptcha(captchaKey, captchaCode);
+        verifyCaptcha(dto.getCaptchaKey(), dto.getCaptchaCode());
 
         if (!adminService.checkLogin(username, password)) {
             saveLoginLog("管理员-" + username, "登录失败：账号或密码错误", request);
@@ -163,7 +168,7 @@ public class AuthServiceImpl implements AuthService {
                 new QueryWrapper<SysAdmin>().eq("username", username));
         boolean mustChange = admin != null && isMustChange(admin.getMustChangePassword());
 
-        return issueTokens(username, "超级管理员", "admin", mustChange, deviceId);
+        return issueTokens(username, "超级管理员", "admin", mustChange, dto.getDeviceId());
     }
 
     @Override
@@ -214,9 +219,7 @@ public class AuthServiceImpl implements AuthService {
                             BLACKLIST_PREFIX + jti, "1", Duration.ofSeconds(remainingSeconds));
                 }
                 if (userNo != null && deviceId != null) {
-                    // 清理当前设备的 RT
                     stringRedisTemplate.delete(REFRESH_TOKEN_PREFIX + userNo + ":" + deviceId);
-                    // 从活跃设备列表中移除
                     stringRedisTemplate.opsForZSet().remove(USER_DEVICES_PREFIX + userNo, deviceId);
                 }
             } catch (Exception ignored) {
@@ -237,7 +240,10 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public Map<String, Object> refreshToken(String refreshToken, String deviceId) {
+    public Map<String, Object> refreshToken(RefreshTokenDTO dto) {
+        String refreshToken = dto.getRefreshToken();
+        String deviceId = dto.getDeviceId();
+
         if (refreshToken == null || refreshToken.isEmpty()) {
             throw new BusinessException("缺少刷新令牌！");
         }
@@ -284,9 +290,7 @@ public class AuthServiceImpl implements AuthService {
             stringRedisTemplate.opsForValue()
                     .set(redisKey, newRefreshToken, REFRESH_TOKEN_TTL);
 
-            // 刷新时更新活跃时间，防止因为太久没刷新被视为“最旧设备”
             stringRedisTemplate.opsForZSet().add(USER_DEVICES_PREFIX + userNo, deviceId, System.currentTimeMillis());
-            // 顺便延长设备列表的 TTL，确保与 RT 一致
             stringRedisTemplate.expire(USER_DEVICES_PREFIX + userNo, REFRESH_TOKEN_TTL);
 
             Map<String, Object> data = new HashMap<>();
@@ -316,31 +320,24 @@ public class AuthServiceImpl implements AuthService {
         String refreshToken = JwtUtil.generateRefreshToken(userNo, role, deviceId);
         String redisKey = REFRESH_TOKEN_PREFIX + userNo + ":" + deviceId;
         
-        // 1. 记录当前设备活跃时间到 ZSet
         String userDevicesKey = USER_DEVICES_PREFIX + userNo;
         long now = System.currentTimeMillis();
         stringRedisTemplate.opsForZSet().add(userDevicesKey, deviceId, now);
-        // 刷新设备列表的过期时间
         stringRedisTemplate.expire(userDevicesKey, REFRESH_TOKEN_TTL);
 
-        // 2. 检查是否超过最大设备限制
         Long deviceCount = stringRedisTemplate.opsForZSet().zCard(userDevicesKey);
         if (deviceCount != null && deviceCount > MAX_DEVICES) {
-            // 3. 获取登录时间最早的设备（ZSet 中 score 最小，排在第一位）
             Set<String> oldestDevices = stringRedisTemplate.opsForZSet().range(userDevicesKey, 0, 0);
             if (oldestDevices != null && !oldestDevices.isEmpty()) {
                 String oldestDeviceId = oldestDevices.iterator().next();
                 
-                // 4. 从设备列表中移除
                 stringRedisTemplate.opsForZSet().remove(userDevicesKey, oldestDeviceId);
-                // 5. 删除旧设备的 Refresh Token，旧设备下次刷新时会因为 RT 失效而掉线
                 stringRedisTemplate.delete(REFRESH_TOKEN_PREFIX + userNo + ":" + oldestDeviceId);
                 
                 log.warn("用户 {} 的在线设备数超过 {} 台，已自动踢出最旧设备: {}", userNo, MAX_DEVICES, oldestDeviceId);
             }
         }
 
-        // 6. 保存新设备的 Refresh Token
         stringRedisTemplate.opsForValue().set(redisKey, refreshToken, REFRESH_TOKEN_TTL);
 
         LoginUserVO userVO = new LoginUserVO(userNo, name, role);
