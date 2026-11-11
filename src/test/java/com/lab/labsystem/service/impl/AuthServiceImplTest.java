@@ -18,6 +18,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -48,6 +49,7 @@ class AuthServiceImplTest {
     private CaptchaService captchaService;
     private StringRedisTemplate redis;
     private ValueOperations<String, String> ops;
+    private ZSetOperations<String, String> zSetOps;
     private Environment environment;
     private AuthServiceImpl service;
 
@@ -67,7 +69,11 @@ class AuthServiceImplTest {
         captchaService = mock(CaptchaService.class);
         redis = mock(StringRedisTemplate.class);
         ops = mock(ValueOperations.class);
+        zSetOps = mock(ZSetOperations.class);
+
         when(redis.opsForValue()).thenReturn(ops);
+        // 关键修复：补齐 ZSetOperations 的 mock，避免 opsForZSet() 返回 null
+        when(redis.opsForZSet()).thenReturn(zSetOps);
 
         environment = mock(Environment.class);
         when(environment.acceptsProfiles(any(Profiles.class))).thenReturn(false);
