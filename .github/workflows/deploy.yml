@@ -62,14 +62,14 @@ jobs:
         distribution: 'temurin'
         cache: maven
 
-    - name: 安装 MySQL 客户端并初始化测试库
+    # 使用 docker exec 在 MySQL 容器内执行 SQL 初始化，避免依赖宿主机的网络下载客户端
+    - name: 初始化测试库
       run: |
-        sudo apt-get update && sudo apt-get install -y default-mysql-client
-        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V1__init.sql
-        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V2__init_data.sql
-        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V3__add_notice_read.sql
-        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < src/main/resources/db/migration/V4__add_indexes.sql
-        mysql -h 127.0.0.1 -P 3306 -u root -proot lab_management_test < run_test_data.sql
+        docker exec -i ${{ job.services.mysql.id }} mysql -uroot -proot lab_management_test < src/main/resources/db/migration/V1__init.sql
+        docker exec -i ${{ job.services.mysql.id }} mysql -uroot -proot lab_management_test < src/main/resources/db/migration/V2__init_data.sql
+        docker exec -i ${{ job.services.mysql.id }} mysql -uroot -proot lab_management_test < src/main/resources/db/migration/V3__add_notice_read.sql
+        docker exec -i ${{ job.services.mysql.id }} mysql -uroot -proot lab_management_test < src/main/resources/db/migration/V4__add_indexes.sql
+        docker exec -i ${{ job.services.mysql.id }} mysql -uroot -proot lab_management_test < run_test_data.sql
 
     # -Pintegration 会把 surefire 的分组切换为 integration，只跑打了
     # @Tag("integration") 的用例（SecurityHardeningTest / LabsystemApplicationTests）
