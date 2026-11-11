@@ -6,6 +6,7 @@ import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.entity.ExpProject;
 import com.lab.labsystem.entity.TeachClass;
 import com.lab.labsystem.mapper.ExpProjectMapper;
+import com.lab.labsystem.mapper.ExpReportMapper;
 import com.lab.labsystem.mapper.ExpSessionMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.service.MinioService;
@@ -40,6 +41,7 @@ class TeacherProjectServiceImplTest {
     private TeachClassMapper teachClassMapper;
     private ExpProjectMapper projectMapper;
     private ExpSessionMapper sessionMapper;
+    private ExpReportMapper reportMapper;
     private MinioService minioService;
     private NumberGenerator numberGenerator;
     private TeacherProjectServiceImpl service;
@@ -51,8 +53,11 @@ class TeacherProjectServiceImplTest {
         sessionMapper = mock(ExpSessionMapper.class);
         minioService = mock(MinioService.class);
         numberGenerator = mock(NumberGenerator.class);
+        reportMapper = mock(ExpReportMapper.class);
+        service = new TeacherProjectServiceImpl(teachClassMapper, projectMapper, sessionMapper, reportMapper, minioService, numberGenerator);
 
-        service = new TeacherProjectServiceImpl(teachClassMapper, projectMapper, sessionMapper, minioService, numberGenerator);
+        // 默认无报告引用，个别用例再覆盖
+        when(reportMapper.selectCount(any())).thenReturn(0L);
     }
 
     private static MockMultipartFile pdf() {
@@ -236,6 +241,29 @@ class TeacherProjectServiceImplTest {
 
         assertEquals("该项目下还有 3 个实验场次，请先取消排课后再删除！", e.getMessage());
         verify(projectMapper, never()).deleteById(anyString());
+    }
+
+    @Test
+    @DisplayName("项目下存在学生报告时拒绝删除")
+    void deleteProjectRejectsWhenHasReports() {
+        ExpProject project = new ExpProject();
+        project.setProjectNo("P001");
+        project.setClassNo("C001");
+        when(projectMapper.selectById("P001")).thenReturn(project);
+
+        TeachClass tc = new TeachClass();
+        tc.setWorkNo("T001");
+        when(teachClassMapper.selectById("C001")).thenReturn(tc);
+
+        when(sessionMapper.selectCount(any())).thenReturn(0L);
+        when(reportMapper.selectCount(any())).thenReturn(5L);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.deleteProject("P001", "T001"));
+
+        assertEquals("该项目下还有 5 份学生报告，请先处理后再删除！", e.getMessage());
+        verify(projectMapper, never()).deleteById(anyString());
+        verify(minioService, never()).remove(anyString());
     }
 
     @Test

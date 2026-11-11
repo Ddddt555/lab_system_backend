@@ -29,7 +29,26 @@
 	<properties>
 		<java.version>21</java.version>
 		<lombok.version>1.18.42</lombok.version>
-		
+
+		<!-- ============================================================
+		     安全收口：Boot 4.0.6 的 BOM 锁定的补丁版本仍落后于最新安全版本，
+		     这里覆盖为本行线的最新补丁（均已在 Maven 仓库确认存在）
+		     ============================================================ -->
+		<!-- Tomcat 11.0.21 -> 11.0.27：HTTP/2 头校验、请求走私、认证绕过、DoS -->
+		<tomcat.version>11.0.27</tomcat.version>
+		<!-- Netty 4.2.12 -> 4.2.20：SNI 路由绕过（CRITICAL）、DNS 约束、TLS 缓冲 -->
+		<netty.version>4.2.20.Final</netty.version>
+		<!-- Jackson 3：3.1.2 -> 3.1.7（多态反序列化、正则回溯、无界缓存） -->
+		<jackson-bom.version>3.1.7</jackson-bom.version>
+		<!-- Jackson 2（部分依赖仍在使用）：2.21.2 -> 2.21.7 -->
+		<jackson-2-bom.version>2.21.7</jackson-2-bom.version>
+		<!-- Micrometer：1.16.5 -> 1.16.6（gRPC / HTTP 请求 DoS） -->
+		<micrometer.version>1.16.6</micrometer.version>
+		<!-- Spring Framework：7.0.7 -> 7.0.9（XsltView RCE、SpEL DoS、静态资源 DoS） -->
+		<spring-framework.version>7.0.9</spring-framework.version>
+		<!-- Spring Data：2025.1.5 -> 2025.1.6（属性绑定 DoS） -->
+		<spring-data-bom.version>2025.1.6</spring-data-bom.version>
+
 		<!-- 测试分组：默认排除 integration 标签（需要 MySQL/Redis 的用例） -->
 		<test.groups></test.groups>
 		<test.excludedGroups>integration</test.excludedGroups>
@@ -67,6 +86,13 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- Boot 4 的测试客户端：替代已移除的 TestRestTemplate -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-resttestclient</artifactId>
 			<scope>test</scope>
 		</dependency>
 
@@ -159,6 +185,13 @@
             <version>1.1.10.9</version>
         </dependency>
 
+        <!-- BouncyCastle 由 minio 传递引入（1.81 有多个 CRITICAL/HIGH），Boot BOM 不管理，显式钉版本 -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <version>1.86</version>
+        </dependency>
+
         <!-- Minio 及补充依赖 -->
         <dependency>
             <groupId>io.minio</groupId>
@@ -196,6 +229,12 @@
 		</dependency>
 
 		<!-- Flyway 数据库版本控制 -->
+		<!-- Boot 4 将 Flyway 自动配置拆到 spring-boot-flyway 模块：
+		     只有 flyway-core 时不会执行迁移（全新数据库将没有表） -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-flyway</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>

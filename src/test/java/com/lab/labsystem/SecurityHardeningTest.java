@@ -6,8 +6,10 @@ import com.lab.labsystem.common.Result;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-//import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.*;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.List;
@@ -16,15 +18,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
-/**
- * =====================================================================
- * 【自动化集成测试类：修改3阶段安全与并发修复验证】
- * 
- * ⚠️【升级说明】Spring Boot 4 移除了 TestRestTemplate，测试框架发生重大重构。
- * 为了顺利推进核心业务代码的升级，暂且将本集成测试类全量注释。
- * 等主干代码在 Spring Boot 4 下完全跑通后，再使用新的测试客户端（如 RestTestClient）重写。
- * =====================================================================
- */
+
 /**
  * =====================================================================
  * 【自动化集成测试类：修改3阶段安全与并发修复验证】
@@ -40,11 +34,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * =====================================================================
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS) 
 @Tag("integration")
 public class SecurityHardeningTest {
-/*
+
     @Autowired
     private TestRestTemplate restTemplate;
 
@@ -86,7 +81,7 @@ public class SecurityHardeningTest {
      * 1. 能正确清理脏数据。
      * 2. 能自动从数据库匹配真实的业务 ID（防止因硬编码导致的测试失败）。
      * 3. 能通过测试后门（testLogin）成功获取 JWT Token。
-     
+     */
     @Test
     @Order(1)
     @DisplayName("0. 清理测试数据 & 获取基础数据")
@@ -141,7 +136,7 @@ public class SecurityHardeningTest {
      * 验证点：
      * 1. 学生即使手动在 Postman/前端传 targetRole=all，后端也应根据其真实 JWT 角色拦截。
      * 2. 拦截后应返回业务异常提示“无权”。
-     
+     */
     @Test
     @Order(2)
     @DisplayName("1. 测试通知越权拦截")
@@ -168,7 +163,7 @@ public class SecurityHardeningTest {
      * 1. 故意传入错误参数（如不存在的 bookingNo）。
      * 2. 后端不能抛出 Java 原生异常信息（如 NullPointerException、SQL 语句错误等）。
      * 3. 应被 GlobalExceptionHandler 捕获并返回友好的业务提示。
-     
+     */
     @Test
     @Order(3)
     @DisplayName("7. 测试异常脱敏")
@@ -195,7 +190,7 @@ public class SecurityHardeningTest {
      * 1. 10 个线程同时请求保存同一个学生的成绩。
      * 2. 数据库不能被击穿（不能报 DuplicateKeyException）。
      * 3. 无论并发多高，最终 exp_score 表里该学生只有一条记录。
-     
+     */
     @Test
     @Order(4)
     @DisplayName("8. 测试并发保存成绩")
@@ -250,7 +245,7 @@ public class SecurityHardeningTest {
      * 验证点：
      * 1. 学生尝试获取不属于自己的文件（或不存在的文件）的下载链接时，应返回 400。
      * 2. 学生尝试直接请求文件流时（没有合法 ticket），应被拦截返回 403。
-     
+     */
     @Test
     @Order(5)
     @DisplayName("9. 测试报告下载越权拦截")
@@ -305,7 +300,7 @@ public class SecurityHardeningTest {
      * 1. 强行把余量改为 1。
      * 2. 用 10 个线程并发去抢。
      * 3. 无论多少人抢，只能成功 1 次，数据库余量必须变成 0，不能出现负数或超卖。
-     
+     */
     @Test
     @Order(6)
     @DisplayName("10. 测试预约并发防超卖")
@@ -375,5 +370,4 @@ public class SecurityHardeningTest {
 
         System.out.println("  ✅ 数据库校验通过，未发生超卖，且只有1条预约记录\n");
     }
-*/
 }
