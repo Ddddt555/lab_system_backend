@@ -33,7 +33,6 @@ class LoginControllerTest {
     @MockitoBean
     private AuthFacade authFacade;
 
-    // 补齐 WebMvcConfig 与 AccessLogInterceptor 所需的依赖
     @MockitoBean
     private StringRedisTemplate stringRedisTemplate;
 
@@ -44,18 +43,18 @@ class LoginControllerTest {
     private MustChangePasswordCache mustChangePasswordCache;
 
     @MockitoBean
-    private MeterRegistry meterRegistry; // 新增：Mock 掉监控组件
+    private MeterRegistry meterRegistry;
 
     @Test
     @DisplayName("学生登录：参数合法时返回 200 与 Token")
     void studentLoginSuccess() throws Exception {
-        // 构建合法请求的 JSON
         String jsonContent = """
                 {
                   "username": "S001",
                   "password": "password",
                   "captchaKey": "key",
-                  "captchaCode": "code"
+                  "captchaCode": "code",
+                  "deviceId": "test-device"
                 }
                 """;
 
@@ -64,7 +63,6 @@ class LoginControllerTest {
         mockResult.put("refreshToken", "mock-rt");
         mockResult.put("user", new LoginUserVO("S001", "张三", "student"));
 
-        // 当调用 Facade 时，返回假数据
         when(authFacade.loginStudent(any(LoginDTO.class), any())).thenReturn(mockResult);
 
         mockMvc.perform(post("/api/login/student")
@@ -78,19 +76,19 @@ class LoginControllerTest {
     @Test
     @DisplayName("学生登录：参数为空时触发 @Valid 校验拦截，返回 400")
     void studentLoginValidationFail() throws Exception {
-        // 故意不传 username，其他必填项传上，确保唯一报错的是 username
         String jsonContent = """
                 {
                   "password": "password",
                   "captchaKey": "mock-key",
-                  "captchaCode": "mock-code"
+                  "captchaCode": "mock-code",
+                  "deviceId": "test-device"
                 }
                 """;
 
         mockMvc.perform(post("/api/login/student")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonContent))
-                .andExpect(status().isOk()) // 异常被全局处理器包装成了 200
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.msg").value("账号不能为空"));
     }

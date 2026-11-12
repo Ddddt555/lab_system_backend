@@ -14,7 +14,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
+import org.springframework.util.DigestUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -34,15 +36,13 @@ public class TokenServiceImpl implements TokenService {
     private static final String BLACKLIST_PREFIX = "jwt:blacklist:";
     private static final String WS_TICKET_PREFIX = "ws:ticket:";
     private static final String USER_DEVICES_PREFIX = "user:devices:";
+    private static final String IDEMPOTENT_PREFIX = "refresh:idem:";
     private static final int MAX_DEVICES = 5;
     
     private static final Duration REFRESH_TOKEN_TTL = Duration.ofDays(7);
     private static final Duration WS_TICKET_TTL = Duration.ofSeconds(30);
+    private static final Duration IDEMPOTENT_TTL = Duration.ofSeconds(60);
 
-    /**
-     * Lua 脚本：保证“比对旧 Token 并替换为新 Token”的原子性。
-     * 避免并发下多个请求同时通过校验，或者相互覆盖。
-     */
     private static final String REFRESH_TOKEN_LUA_SCRIPT =
             "if redis.call('GET', KEYS[1]) == ARGV[1] then " +
             "   redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]) " +
@@ -61,6 +61,10 @@ public class TokenServiceImpl implements TokenService {
 
     @Override
     public Map<String, Object> createTokenPair(String userNo, String role, String deviceId) {
+        if (deviceId == null || deviceId.trim().isEmpty()) {
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "设备标识不能为空，禁止下发 Token！");
+        }
+
         String accessToken = JwtUtil.generateAccessToken(userNo, role, deviceId);
         String refreshToken = JwtUtil.generateRefreshToken(userNo, role, deviceId);
         String redisKey = REFRESH_TOKEN_PREFIX + userNo + ":" + deviceId;
@@ -95,7 +99,6 @@ public class TokenServiceImpl implements TokenService {
             throw BusinessException.of(ErrorCode.BAD_REQUEST, "缺少刷新令牌！");
         }
         
-        // 强制要求刷新时必须携带设备指纹
         if (deviceId == null || deviceId.trim().isEmpty()) {
             throw BusinessException.of(ErrorCode.BAD_REQUEST, "缺少设备标识，请求非法！");
         }
@@ -111,19 +114,29 @@ public class TokenServiceImpl implements TokenService {
                 throw BusinessException.of(ErrorCode.TOKEN_INVALID, "无效的刷新令牌类型！");
             }
             
-            // 强制校验：Token 中必须包含设备指纹，且必须与请求中的一致
             if (tokenDeviceId == null || !tokenDeviceId.equals(deviceId)) {
                 securityLog.warn("【设备异常】刷新令牌中的设备指纹不匹配或缺失，用户: {}, 请求设备: {}, Token设备: {}", userNo, deviceId, tokenDeviceId);
                 throw BusinessException.of(ErrorCode.TOKEN_INVALID, "设备环境异常，请重新登录！");
             }
 
+            String idempotentKey = IDEMPOTENT_PREFIX + DigestUtils.md5DigestAsHex(refreshToken.getBytes(StandardCharsets.UTF_8));
+            String cachedResult = stringRedisTemplate.opsForValue().get(idempotentKey);
+            if (cachedResult != null) {
+                String[] parts = cachedResult.split("\\|\\|\\|");
+                if (parts.length == 2) {
+                    securityLog.info("【并发刷新兼容】用户: {}, 设备: {}, 命中幂等缓存，直接返回结果", userNo, deviceId);
+                    Map<String, Object> data = new HashMap<>();
+                    data.put("token", parts[0]);
+                    data.put("refreshToken", parts[1]);
+                    return data;
+                }
+            }
+
             String redisKey = REFRESH_TOKEN_PREFIX + userNo + ":" + deviceId;
             
-            // 生成新 Token
             String newAccessToken = JwtUtil.generateAccessToken(userNo, role, deviceId);
             String newRefreshToken = JwtUtil.generateRefreshToken(userNo, role, deviceId);
 
-            // 使用 Lua 脚本进行原子比对与替换
             DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(REFRESH_TOKEN_LUA_SCRIPT, Long.class);
             Long result = stringRedisTemplate.execute(
                     redisScript,
@@ -133,34 +146,24 @@ public class TokenServiceImpl implements TokenService {
                     String.valueOf(REFRESH_TOKEN_TTL.getSeconds())
             );
 
-            // 如果返回 0，说明旧 Token 不匹配（可能已失效，也可能是并发下被别的请求刷新了）
             if (result == null || result != 1L) {
-                // 不直接删除，先检查 Redis 中当前的 Token 状态
-                String currentTokenInRedis = stringRedisTemplate.opsForValue().get(redisKey);
-                
-                if (currentTokenInRedis == null) {
-                    // Redis 已空，确实是过期或被注销
-                    SysLog dbLog = new SysLog();
-                    dbLog.setOperator("用户-" + userNo);
-                    dbLog.setAction("安全拦截：设备 " + deviceId + " 检测到无效刷新令牌，已强制该设备下线");
-                    dbLog.setCreateTime(LocalDateTime.now());
-                    dbLog.setSuccess(0);
-                    logMapper.insert(dbLog);
+                SysLog dbLog = new SysLog();
+                dbLog.setOperator("用户-" + userNo);
+                dbLog.setAction("安全拦截：设备 " + deviceId + " 尝试重放旧刷新令牌，已强制下线");
+                dbLog.setCreateTime(LocalDateTime.now());
+                dbLog.setSuccess(0);
+                logMapper.insert(dbLog);
 
-                    securityLog.warn("【重放攻击拦截】用户: {}, 设备: {}, 使用了已失效的 RefreshToken，已强制下线", userNo, deviceId);
-                    throw BusinessException.of(ErrorCode.FORBIDDEN, "安全警告：检测到异常刷新操作，已被强制下线，请重新登录！");
-                }
-                
-                // Redis 中还有值，说明是高并发请求引起的，直接返回当前的 Token，避免前端掉线
-                securityLog.info("【并发刷新】用户: {}, 设备: {}, 检测到并发刷新，直接返回最新令牌", userNo, deviceId);
-                
-                Map<String, Object> data = new HashMap<>();
-                data.put("token", newAccessToken); // 签发新的 Access Token
-                data.put("refreshToken", currentTokenInRedis); // 返回 Redis 中已有的最新 Refresh Token
-                return data;
+                securityLog.warn("【重放攻击拦截】用户: {}, 设备: {}, 使用了已失效或被替换的 RefreshToken", userNo, deviceId);
+                throw BusinessException.of(ErrorCode.FORBIDDEN, "安全警告：检测到异常刷新操作，已被强制下线，请重新登录！");
             }
 
-            // 原子替换成功，更新设备活跃时间
+            stringRedisTemplate.opsForValue().set(
+                    idempotentKey, 
+                    newAccessToken + "|||" + newRefreshToken, 
+                    IDEMPOTENT_TTL
+            );
+
             stringRedisTemplate.opsForZSet().add(USER_DEVICES_PREFIX + userNo, deviceId, System.currentTimeMillis());
             stringRedisTemplate.expire(USER_DEVICES_PREFIX + userNo, REFRESH_TOKEN_TTL);
 

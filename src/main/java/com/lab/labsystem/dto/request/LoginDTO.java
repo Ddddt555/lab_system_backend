@@ -22,5 +22,6 @@ public class LoginDTO {
     private String captchaCode;
 
     /** 浏览器设备指纹，用于 Token 绑定 */
+    @NotBlank(message = "设备标识不能为空")
     private String deviceId;
 }
