@@ -12,6 +12,8 @@ import com.lab.labsystem.mapper.StudentBookingMapper;
 import com.lab.labsystem.mapper.StudentTeachClassMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.mapper.TeacherMapper;
+import com.lab.labsystem.service.student.impl.CourseSelectionServiceImpl;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

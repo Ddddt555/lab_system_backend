@@ -15,9 +15,9 @@ import org.springframework.web.multipart.MultipartFile;
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.Result;
 import com.lab.labsystem.entity.ExpReport;
-import com.lab.labsystem.service.MinioService;
-import com.lab.labsystem.service.PermissionService;
-import com.lab.labsystem.service.ReportService;
+import com.lab.labsystem.service.file.MinioService;
+import com.lab.labsystem.service.report.PermissionService;
+import com.lab.labsystem.service.report.ReportService;
 import com.lab.labsystem.vo.ReportVO;
 
 import io.swagger.v3.oas.annotations.Operation;

@@ -10,6 +10,8 @@ import com.lab.labsystem.mapper.DepartmentMapper;
 import com.lab.labsystem.mapper.MajorMapper;
 import com.lab.labsystem.mapper.TeacherMapper;
 import com.lab.labsystem.mapper.TitleDictMapper;
+import com.lab.labsystem.service.admin.impl.AdminDictServiceImpl;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

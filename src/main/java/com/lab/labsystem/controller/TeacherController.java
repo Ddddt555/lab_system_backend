@@ -22,12 +22,12 @@ import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.Result;
 import com.lab.labsystem.entity.LabRoom;
 import com.lab.labsystem.entity.SysSemester;
-import com.lab.labsystem.service.AttendanceService;
-import com.lab.labsystem.service.TeacherBaseDataService;
-import com.lab.labsystem.service.TeacherProjectService;
-import com.lab.labsystem.service.TeacherScoreService;
-import com.lab.labsystem.service.TeacherService;
-import com.lab.labsystem.service.TeacherSessionService;
+import com.lab.labsystem.service.attendance.AttendanceService;
+import com.lab.labsystem.service.teacher.TeacherBaseDataService;
+import com.lab.labsystem.service.teacher.TeacherProjectService;
+import com.lab.labsystem.service.teacher.TeacherScoreService;
+import com.lab.labsystem.service.teacher.TeacherService;
+import com.lab.labsystem.service.teacher.TeacherSessionService;
 import com.lab.labsystem.vo.StudentVO;
 
 import io.swagger.v3.oas.annotations.Operation;

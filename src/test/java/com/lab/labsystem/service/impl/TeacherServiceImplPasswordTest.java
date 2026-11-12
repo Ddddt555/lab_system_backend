@@ -5,7 +5,9 @@ import com.lab.labsystem.dto.request.TeacherCreateDTO;
 import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.entity.Teacher;
 import com.lab.labsystem.mapper.TeacherMapper;
-import com.lab.labsystem.service.MustChangePasswordCache;
+import com.lab.labsystem.service.auth.MustChangePasswordCache;
+import com.lab.labsystem.service.teacher.impl.TeacherServiceImpl;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

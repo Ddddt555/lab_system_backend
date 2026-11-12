@@ -3,6 +3,8 @@ package com.lab.labsystem.service.impl;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.JwtUtil;
 import com.lab.labsystem.mapper.SysLogMapper;
+import com.lab.labsystem.service.auth.impl.TokenServiceImpl;
+
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

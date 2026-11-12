@@ -3,7 +3,9 @@ package com.lab.labsystem.service.impl;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.entity.Student;
 import com.lab.labsystem.mapper.StudentMapper;
-import com.lab.labsystem.service.MustChangePasswordCache;
+import com.lab.labsystem.service.auth.MustChangePasswordCache;
+import com.lab.labsystem.service.student.impl.StudentServiceImpl;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

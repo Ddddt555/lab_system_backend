@@ -9,6 +9,8 @@ import com.lab.labsystem.entity.Major;
 import com.lab.labsystem.mapper.AdminClassMapper;
 import com.lab.labsystem.mapper.MajorMapper;
 import com.lab.labsystem.mapper.StudentMapper;
+import com.lab.labsystem.service.admin.impl.OrgServiceImpl;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

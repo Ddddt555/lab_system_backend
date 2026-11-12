@@ -2,7 +2,8 @@ package com.lab.labsystem.aspect;
 
 import com.lab.labsystem.mapper.ExpProjectMapper;
 import com.lab.labsystem.mapper.ExpReportMapper;
-import com.lab.labsystem.service.MinioService;
+import com.lab.labsystem.service.file.MinioService;
+
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;

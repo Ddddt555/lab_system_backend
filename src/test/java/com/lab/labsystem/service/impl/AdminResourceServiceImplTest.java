@@ -13,6 +13,8 @@ import com.lab.labsystem.mapper.LabRoomMapper;
 import com.lab.labsystem.mapper.SysLogMapper;
 import com.lab.labsystem.mapper.SysSemesterMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
+import com.lab.labsystem.service.admin.impl.AdminResourceServiceImpl;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -4,15 +4,38 @@ import java.io.IOException;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.lab.labsystem.annotation.LogRecord;
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.Result;
-import com.lab.labsystem.dto.request.*;
-import com.lab.labsystem.entity.*;
-import com.lab.labsystem.service.*;
+import com.lab.labsystem.dto.request.AdminClassCreateDTO;
+import com.lab.labsystem.dto.request.CourseCreateDTO;
+import com.lab.labsystem.dto.request.DepartmentCreateDTO;
+import com.lab.labsystem.dto.request.EquipmentCreateDTO;
+import com.lab.labsystem.dto.request.LabCreateDTO;
+import com.lab.labsystem.dto.request.MajorCreateDTO;
+import com.lab.labsystem.dto.request.SemesterCreateDTO;
+import com.lab.labsystem.dto.request.StudentCreateDTO;
+import com.lab.labsystem.dto.request.TeachClassCreateDTO;
+import com.lab.labsystem.dto.request.TeacherCreateDTO;
+import com.lab.labsystem.dto.request.TitleCreateDTO;
+import com.lab.labsystem.entity.Department;
+import com.lab.labsystem.entity.LabEquipment;
+import com.lab.labsystem.entity.Student;
+import com.lab.labsystem.entity.Teacher;
+import com.lab.labsystem.entity.TitleDict;
+import com.lab.labsystem.service.admin.OrgService;
+import com.lab.labsystem.service.admin.TeachingService;
+import com.lab.labsystem.service.student.StudentService;
+import com.lab.labsystem.service.teacher.TeacherService;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,10 +48,10 @@ import jakarta.validation.Valid;
 @RequestMapping("/api/admin")
 public class AdminController {
 
-    @Autowired private com.lab.labsystem.service.AdminService adminService;
-    @Autowired private com.lab.labsystem.service.AdminAccountService adminAccountService;
-    @Autowired private com.lab.labsystem.service.AdminDictService adminDictService;
-    @Autowired private com.lab.labsystem.service.AdminResourceService adminResourceService;
+    @Autowired private com.lab.labsystem.service.admin.AdminService adminService;
+    @Autowired private com.lab.labsystem.service.admin.AdminAccountService adminAccountService;
+    @Autowired private com.lab.labsystem.service.admin.AdminDictService adminDictService;
+    @Autowired private com.lab.labsystem.service.admin.AdminResourceService adminResourceService;
 
     @Autowired private StudentService studentService;
     @Autowired private TeacherService teacherService;

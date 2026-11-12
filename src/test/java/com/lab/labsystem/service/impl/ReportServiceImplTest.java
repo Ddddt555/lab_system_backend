@@ -12,8 +12,10 @@ import com.lab.labsystem.mapper.ExpReportMapper;
 import com.lab.labsystem.mapper.MajorMapper;
 import com.lab.labsystem.mapper.StudentMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
-import com.lab.labsystem.service.MinioService;
-import com.lab.labsystem.service.TeacherScoreService;
+import com.lab.labsystem.service.file.MinioService;
+import com.lab.labsystem.service.report.impl.ReportServiceImpl;
+import com.lab.labsystem.service.teacher.TeacherScoreService;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

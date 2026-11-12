@@ -2,6 +2,9 @@ package com.lab.labsystem.service;
 
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.mapper.SysAdminMapper;
+import com.lab.labsystem.service.admin.AdminService;
+import com.lab.labsystem.service.auth.MustChangePasswordCache;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

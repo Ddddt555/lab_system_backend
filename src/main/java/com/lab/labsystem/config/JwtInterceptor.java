@@ -1,8 +1,9 @@
 package com.lab.labsystem.config;
 
 import com.lab.labsystem.common.JwtUtil;
-import com.lab.labsystem.service.MustChangePasswordCache;
-import com.lab.labsystem.service.TokenService;
+import com.lab.labsystem.service.auth.MustChangePasswordCache;
+import com.lab.labsystem.service.auth.TokenService;
+
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;

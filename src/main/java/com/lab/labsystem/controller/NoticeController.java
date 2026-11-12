@@ -2,7 +2,8 @@ package com.lab.labsystem.controller;
 
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.Result;
-import com.lab.labsystem.service.NoticeService;
+import com.lab.labsystem.service.notice.NoticeService;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;

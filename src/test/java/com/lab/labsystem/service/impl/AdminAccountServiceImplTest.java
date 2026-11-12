@@ -5,7 +5,9 @@ import com.lab.labsystem.entity.Student;
 import com.lab.labsystem.entity.Teacher;
 import com.lab.labsystem.mapper.StudentMapper;
 import com.lab.labsystem.mapper.TeacherMapper;
-import com.lab.labsystem.service.MustChangePasswordCache;
+import com.lab.labsystem.service.admin.impl.AdminAccountServiceImpl;
+import com.lab.labsystem.service.auth.MustChangePasswordCache;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

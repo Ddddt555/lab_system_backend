@@ -1,7 +1,8 @@
 package com.lab.labsystem.config;
 
-import com.lab.labsystem.service.MustChangePasswordCache;
-import com.lab.labsystem.service.TokenService;
+import com.lab.labsystem.service.auth.MustChangePasswordCache;
+import com.lab.labsystem.service.auth.TokenService;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;

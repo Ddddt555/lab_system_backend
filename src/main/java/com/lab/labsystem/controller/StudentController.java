@@ -3,11 +3,12 @@ package com.lab.labsystem.controller;
 import com.lab.labsystem.annotation.RateLimit;
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.Result;
-import com.lab.labsystem.service.AttendanceService;
-import com.lab.labsystem.service.CourseSelectionService;
-import com.lab.labsystem.service.SessionQueryService;
-import com.lab.labsystem.service.StudentBookingService;
-import com.lab.labsystem.service.StudentService;
+import com.lab.labsystem.service.attendance.AttendanceService;
+import com.lab.labsystem.service.student.CourseSelectionService;
+import com.lab.labsystem.service.student.SessionQueryService;
+import com.lab.labsystem.service.student.StudentBookingService;
+import com.lab.labsystem.service.student.StudentService;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;

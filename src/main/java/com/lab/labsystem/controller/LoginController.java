@@ -3,7 +3,8 @@ package com.lab.labsystem.controller;
 import com.lab.labsystem.common.Result;
 import com.lab.labsystem.dto.request.LoginDTO;
 import com.lab.labsystem.dto.request.RefreshTokenDTO;
-import com.lab.labsystem.service.AuthFacade;
+import com.lab.labsystem.service.auth.AuthFacade;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;

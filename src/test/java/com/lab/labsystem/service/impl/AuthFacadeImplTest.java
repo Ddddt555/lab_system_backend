@@ -1,8 +1,9 @@
 package com.lab.labsystem.service.impl;
 
 import com.lab.labsystem.dto.request.LoginDTO;
-import com.lab.labsystem.service.AuthService;
-import com.lab.labsystem.service.TokenService;
+import com.lab.labsystem.service.auth.AuthService;
+import com.lab.labsystem.service.auth.TokenService;
+import com.lab.labsystem.service.auth.impl.AuthFacadeImpl;
 import com.lab.labsystem.vo.LoginUserVO;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;

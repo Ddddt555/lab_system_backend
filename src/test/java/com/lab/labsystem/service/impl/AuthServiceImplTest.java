@@ -8,7 +8,9 @@ import com.lab.labsystem.mapper.StudentMapper;
 import com.lab.labsystem.mapper.SysAdminMapper;
 import com.lab.labsystem.mapper.SysLogMapper;
 import com.lab.labsystem.mapper.TeacherMapper;
-import com.lab.labsystem.service.AdminService;
+import com.lab.labsystem.service.admin.AdminService;
+import com.lab.labsystem.service.auth.impl.AuthServiceImpl;
+
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
