@@ -1,29 +1,30 @@
 package com.lab.labsystem.service.impl;
 
-import com.lab.labsystem.common.BusinessException;
-import com.lab.labsystem.common.JwtUtil;
-import com.lab.labsystem.mapper.SysLogMapper;
-import com.lab.labsystem.service.auth.impl.TokenServiceImpl;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.ZSetOperations;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
-import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.JwtUtil;
+import com.lab.labsystem.mapper.SysLogMapper;
+import com.lab.labsystem.service.auth.impl.TokenServiceImpl;
 
 class TokenServiceImplTest {
 
@@ -64,8 +65,8 @@ class TokenServiceImplTest {
         assertNotNull(tokens.get("refreshToken"));
         
         // 验证是否写入了 Redis
-        verify(ops).set(eq("refresh_token:S001:" + DEVICE_ID), anyString(), any());
-        verify(zSetOps).add(eq("user:devices:S001"), eq(DEVICE_ID), any(Double.class));
+        org.mockito.Mockito.verify(ops).set(org.mockito.ArgumentMatchers.eq("refresh_token:S001:" + DEVICE_ID), anyString(), any());
+        org.mockito.Mockito.verify(zSetOps).add(org.mockito.ArgumentMatchers.eq("user:devices:S001"), org.mockito.ArgumentMatchers.eq(DEVICE_ID), any(Double.class));
     }
 
     @Test
@@ -83,26 +84,44 @@ class TokenServiceImplTest {
     @DisplayName("刷新令牌：与 Redis 不一致时拒绝并判定为重放")
     void refreshRejectsMismatch() {
         String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
-        when(ops.get("refresh_token:S001:" + DEVICE_ID)).thenReturn("another-token");
+        
+        // Mock Lua 脚本返回 0 (代表比对失败)
+        when(redis.execute(
+                ArgumentMatchers.<DefaultRedisScript<Long>>any(), 
+                anyList(), 
+                anyString(), 
+                anyString(), 
+                anyString()
+        )).thenReturn(0L);
 
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.refreshToken(refreshToken, DEVICE_ID));
 
         assertEquals("安全警告：检测到异常刷新操作，已被强制下线，请重新登录！", e.getMessage());
-        verify(redis).delete("refresh_token:S001:" + DEVICE_ID);
+        org.mockito.Mockito.verify(redis).delete("refresh_token:S001:" + DEVICE_ID);
     }
 
     @Test
     @DisplayName("刷新令牌：成功时返回新的双 Token 并续期")
     void refreshSuccess() {
         String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
-        when(ops.get("refresh_token:S001:" + DEVICE_ID)).thenReturn(refreshToken);
+        
+        // Mock Lua 脚本返回 1 (代表比对并替换成功)
+        when(redis.execute(
+                ArgumentMatchers.<DefaultRedisScript<Long>>any(), 
+                anyList(), 
+                anyString(), 
+                anyString(), 
+                anyString()
+        )).thenReturn(1L);
 
         Map<String, Object> data = service.refreshToken(refreshToken, DEVICE_ID);
 
         assertNotNull(data.get("token"));
         assertNotNull(data.get("refreshToken"));
-        verify(ops).set(eq("refresh_token:S001:" + DEVICE_ID), anyString(), any());
+        
+        // 验证是否更新了活跃设备时间
+        org.mockito.Mockito.verify(zSetOps).add(org.mockito.ArgumentMatchers.eq("user:devices:S001"), org.mockito.ArgumentMatchers.eq(DEVICE_ID), any(Double.class));
     }
 
     @Test

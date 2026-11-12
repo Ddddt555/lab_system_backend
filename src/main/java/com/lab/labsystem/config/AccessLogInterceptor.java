@@ -43,29 +43,32 @@ public class AccessLogInterceptor implements HandlerInterceptor {
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
-        Object startTimeObj = request.getAttribute("startTime");
-        if (startTimeObj != null) {
-            long startTime = (Long) startTimeObj;
-            long costMs = System.currentTimeMillis() - startTime;
-            
-            String uri = request.getRequestURI();
-            String module = extractModule(uri);
+        // 加上 try-catch，避免监控系统故障导致业务接口报 500
+        try {
+            Object startTimeObj = request.getAttribute("startTime");
+            if (startTimeObj != null) {
+                long startTime = (Long) startTimeObj;
+                long costMs = System.currentTimeMillis() - startTime;
+                
+                String uri = request.getRequestURI();
+                String module = extractModule(uri);
 
-            // 记录到 Prometheus (Micrometer)
-            // 指标名称：api_module_duration_seconds
-            Timer.builder("api.module.duration")
-                    .description("API request duration grouped by module")
-                    .tag("module", module) // 按模块打标签
-                    .tag("method", request.getMethod())
-                    .tag("status", String.valueOf(response.getStatus()))
-                    .register(meterRegistry)
-                    .record(costMs, TimeUnit.MILLISECONDS);
+                // 记录到 Prometheus (Micrometer)
+                Timer.builder("api.module.duration")
+                        .description("API request duration grouped by module")
+                        .tag("module", module)
+                        .tag("method", request.getMethod())
+                        .tag("status", String.valueOf(response.getStatus()))
+                        .register(meterRegistry)
+                        .record(costMs, TimeUnit.MILLISECONDS);
+            }
+        } catch (Exception e) {
+            log.warn("记录接口耗时监控指标失败，已忽略: {}", e.getMessage());
         }
     }
 
     /**
      * 从 URI 中提取业务模块名
-     * 例如 /api/student/book -> student
      */
     private String extractModule(String uri) {
         if (uri == null || !uri.startsWith("/api/")) {
@@ -73,7 +76,6 @@ public class AccessLogInterceptor implements HandlerInterceptor {
         }
         String[] parts = uri.split("/");
         if (parts.length > 2) {
-            // parts[0]="" parts[1]="api" parts[2]="student"
             return parts[2];
         }
         return "unknown";
