@@ -5,6 +5,7 @@ import com.lab.labsystem.service.auth.AuthFacade;
 import com.lab.labsystem.service.auth.MustChangePasswordCache;
 import com.lab.labsystem.service.auth.TokenService;
 import com.lab.labsystem.vo.LoginUserVO;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,7 +33,7 @@ class LoginControllerTest {
     @MockitoBean
     private AuthFacade authFacade;
 
-    // 补齐 WebMvcConfig 所需的依赖
+    // 补齐 WebMvcConfig 与 AccessLogInterceptor 所需的依赖
     @MockitoBean
     private StringRedisTemplate stringRedisTemplate;
 
@@ -41,6 +42,9 @@ class LoginControllerTest {
 
     @MockitoBean
     private MustChangePasswordCache mustChangePasswordCache;
+
+    @MockitoBean
+    private MeterRegistry meterRegistry; // 新增：Mock 掉监控组件
 
     @Test
     @DisplayName("学生登录：参数合法时返回 200 与 Token")
