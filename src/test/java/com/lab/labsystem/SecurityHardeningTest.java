@@ -128,6 +128,8 @@ public class SecurityHardeningTest {
         ResponseEntity<Result> response = restTemplate.postForEntity(url, entity, Result.class);
         Result result = response.getBody();
 
+        assertNotNull(result, "返回结果为空，可能被拦截器拒绝导致请求失败");
+        
         // 期望：被拦截并返回 403 错误（统一错误码改造后，越权返回 403）
         assertEquals(403, result.getCode(), "越权校验失败，学生竟然能发通知！");
         assertTrue(result.getMsg().contains("无权"), "错误提示不对");
@@ -147,7 +149,7 @@ public class SecurityHardeningTest {
         ResponseEntity<Result> response = restTemplate.postForEntity(url, entity, Result.class);
         Result result = response.getBody();
 
-        assertNotNull(result);
+        assertNotNull(result, "返回结果为空，可能被拦截器拒绝导致请求失败");
         System.out.println("  异常返回内容: " + result.getMsg());
         // 断言：返回的文本中绝对不能出现 java. 或 org.springframework 等底层信息
         assertFalse(result.getMsg().contains("java."), "异常脱敏失败，暴露了底层 Java 类名！");
@@ -220,7 +222,7 @@ public class SecurityHardeningTest {
         ResponseEntity<Result> linkResponse = restTemplate.exchange(getUrlApi, HttpMethod.GET, entity, Result.class);
         Result linkResult = linkResponse.getBody();
 
-        assertNotNull(linkResult);
+        assertNotNull(linkResult, "返回结果为空，可能被拦截器拒绝导致请求失败");
         assertEquals(400, linkResult.getCode(), "越权获取下载链接未拦截！");
         assertEquals("没有权限！", linkResult.getMsg());
         System.out.println("  越权获取下载链接被成功拦截，返回: " + linkResult.getMsg());
@@ -248,6 +250,8 @@ public class SecurityHardeningTest {
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + token);
         headers.setContentType(MediaType.APPLICATION_JSON);
+        // 【核心修复】带上与 testLogin 签发 Token 时一致的 deviceId，防止被拦截器拒绝
+        headers.set("X-Device-Id", "test-device");
         return headers;
     }
 
