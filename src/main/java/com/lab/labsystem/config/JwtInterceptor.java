@@ -8,11 +8,15 @@ import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 @Slf4j
 public class JwtInterceptor implements HandlerInterceptor {
+
+    private static final Logger securityLog = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     private final TokenService tokenService;
     private final StringRedisTemplate stringRedisTemplate;
@@ -32,6 +36,9 @@ public class JwtInterceptor implements HandlerInterceptor {
             return true;
         }
 
+        String clientIp = getClientIp(request);
+        String requestUri = request.getRequestURI();
+
         String token = request.getHeader("Authorization");
         if (token != null && token.startsWith("Bearer ")) {
             token = token.substring(7);
@@ -48,8 +55,8 @@ public class JwtInterceptor implements HandlerInterceptor {
 
                 // 校验令牌类型，仅允许 Access Token 访问业务接口
                 if (!"access".equals(claims.get("type"))) {
-                    log.warn("拒绝使用非 Access Token 访问接口: {}, type={}",
-                            request.getRequestURI(), claims.get("type"));
+                    securityLog.warn("【非法访问】尝试使用非 Access Token 访问接口。URI: {}, Type: {}, IP: {}", 
+                            requestUri, claims.get("type"), clientIp);
                     response.setStatus(401);
                     return false;
                 }
@@ -57,7 +64,7 @@ public class JwtInterceptor implements HandlerInterceptor {
                 String jti = claims.getId();
                 // 校验黑名单（调用 TokenService）
                 if (tokenService.isBlacklisted(jti)) {
-                    log.warn("试图使用已被拉黑的 Token 访问接口: {}", request.getRequestURI());
+                    securityLog.warn("【非法访问】尝试使用已被拉黑的 Token 访问接口。URI: {}, IP: {}", requestUri, clientIp);
                     response.setStatus(401);
                     return false;
                 }
@@ -66,7 +73,8 @@ public class JwtInterceptor implements HandlerInterceptor {
                 String tokenDeviceId = (String) claims.get("deviceId");
                 String requestDeviceId = request.getHeader("X-Device-Id");
                 if (tokenDeviceId != null && requestDeviceId != null && !tokenDeviceId.equals(requestDeviceId)) {
-                    log.warn("设备指纹不匹配，疑似 Token 盗用。Token: {}, Request: {}", tokenDeviceId, requestDeviceId);
+                    securityLog.warn("【设备异常】Token 设备指纹不匹配，疑似 Token 盗用。URI: {}, Token设备: {}, 请求设备: {}, IP: {}", 
+                            requestUri, tokenDeviceId, requestDeviceId, clientIp);
                     response.setStatus(401);
                     return false;
                 }
@@ -79,13 +87,12 @@ public class JwtInterceptor implements HandlerInterceptor {
 
                 // 校验用户是否需要强制修改密码
                 boolean mustChange = mustChangePasswordCache.isRequired(role, userNo);
-                String uri = request.getRequestURI();
-                boolean isWhitelisted = uri.endsWith("/update-password") || 
-                                        uri.endsWith("/notice/list") || 
-                                        uri.endsWith("/logout");
+                boolean isWhitelisted = requestUri.endsWith("/update-password") || 
+                                        requestUri.endsWith("/notice/list") || 
+                                        requestUri.endsWith("/logout");
 
                 if (mustChange && !isWhitelisted) {
-                    log.warn("用户 {} 未修改初始密码，被强制拦截访问: {}", userNo, uri);
+                    securityLog.warn("【强制改密拦截】用户 {} 未修改初始密码，被拦截访问。URI: {}, IP: {}", userNo, requestUri, clientIp);
                     response.setStatus(403);
                     response.setContentType("application/json;charset=UTF-8");
                     response.getWriter().write("{\"code\":403,\"msg\":\"请先修改初始密码！\",\"data\":null}");
@@ -95,7 +102,7 @@ public class JwtInterceptor implements HandlerInterceptor {
                 return true; 
                 
             } catch (Exception e) {
-                log.error("解析 Token 失败: {}", e.getMessage());
+                securityLog.error("【Token 解析失败】URI: {}, IP: {}, 错误: {}", requestUri, clientIp, e.getMessage());
                 response.setStatus(401);
                 return false;
             }
@@ -118,11 +125,26 @@ public class JwtInterceptor implements HandlerInterceptor {
                 
                 return true;
             } else {
-                log.warn("试图使用无效或已过期的 Ticket 访问接口: {}", request.getRequestURI());
+                securityLog.warn("【非法票据】试图使用无效或已过期的 Ticket 访问接口。URI: {}, IP: {}", requestUri, clientIp);
             }
         }
         
         response.setStatus(401);
         return false;
+    }
+
+    /**
+     * 获取请求的真实客户端 IP
+     */
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        // 处理多级代理的情况（取第一个非 unknown 的 IP）
+        if (ip != null && ip.contains(",")) {
+            ip = ip.split(",")[0].trim();
+        }
+        return ip;
     }
 }

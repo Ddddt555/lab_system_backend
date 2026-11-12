@@ -9,6 +9,8 @@ import com.lab.labsystem.service.auth.TokenService;
 
 import io.jsonwebtoken.Claims;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +25,8 @@ import java.util.UUID;
 @Slf4j
 @Service
 public class TokenServiceImpl implements TokenService {
+
+    private static final Logger securityLog = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     private static final String REFRESH_TOKEN_PREFIX = "refresh_token:";
     private static final String BLACKLIST_PREFIX = "jwt:blacklist:";
@@ -59,7 +63,7 @@ public class TokenServiceImpl implements TokenService {
                 String oldestDeviceId = oldestDevices.iterator().next();
                 stringRedisTemplate.opsForZSet().remove(userDevicesKey, oldestDeviceId);
                 stringRedisTemplate.delete(REFRESH_TOKEN_PREFIX + userNo + ":" + oldestDeviceId);
-                log.warn("用户 {} 的在线设备数超过 {} 台，已自动踢出最旧设备: {}", userNo, MAX_DEVICES, oldestDeviceId);
+                securityLog.warn("【设备超限】用户 {} 的在线设备数超过 {} 台，已自动踢出最旧设备: {}", userNo, MAX_DEVICES, oldestDeviceId);
             }
         }
 
@@ -87,6 +91,7 @@ public class TokenServiceImpl implements TokenService {
                 throw BusinessException.of(ErrorCode.TOKEN_INVALID, "无效的刷新令牌类型！");
             }
             if (tokenDeviceId != null && deviceId != null && !tokenDeviceId.equals(deviceId)) {
+                securityLog.warn("【设备异常】刷新令牌中的设备指纹不匹配，用户: {}, 请求设备: {}, Token设备: {}", userNo, deviceId, tokenDeviceId);
                 throw BusinessException.of(ErrorCode.TOKEN_INVALID, "设备环境异常，请重新登录！");
             }
 
@@ -99,12 +104,17 @@ public class TokenServiceImpl implements TokenService {
 
             if (!cachedToken.equals(refreshToken)) {
                 stringRedisTemplate.delete(redisKey);
-                SysLog securityLog = new SysLog();
-                securityLog.setOperator("用户-" + userNo);
-                securityLog.setAction("安全拦截：设备 " + deviceId + " 检测到无效刷新令牌，已强制该设备下线");
-                securityLog.setCreateTime(LocalDateTime.now());
-                securityLog.setSuccess(0);
-                logMapper.insert(securityLog);
+                
+                // 1. 写入数据库审计
+                SysLog dbLog = new SysLog();
+                dbLog.setOperator("用户-" + userNo);
+                dbLog.setAction("安全拦截：设备 " + deviceId + " 检测到无效刷新令牌，已强制该设备下线");
+                dbLog.setCreateTime(LocalDateTime.now());
+                dbLog.setSuccess(0);
+                logMapper.insert(dbLog);
+
+                // 2. 写入独立安全日志
+                securityLog.warn("【重放攻击拦截】用户: {}, 设备: {}, 使用了已失效或被替换的 RefreshToken，已强制下线", userNo, deviceId);
 
                 throw BusinessException.of(ErrorCode.FORBIDDEN, "安全警告：检测到异常刷新操作，已被强制下线，请重新登录！");
             }

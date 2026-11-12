@@ -1,13 +1,15 @@
 package com.lab.labsystem.aspect;
 
 import com.lab.labsystem.annotation.RequireRole;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.Result;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.extern.slf4j.Slf4j; // 🛑 新增
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -15,10 +17,11 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 
-@Slf4j // 🛑 开启日志
 @Aspect
 @Component
 public class RoleAuthAspect {
+
+    private static final Logger securityLog = LoggerFactory.getLogger("SECURITY_AUDIT");
 
     @Around("@annotation(com.lab.labsystem.annotation.RequireRole) || @within(com.lab.labsystem.annotation.RequireRole)")
     public Object checkRole(ProceedingJoinPoint joinPoint) throws Throwable {
@@ -29,9 +32,10 @@ public class RoleAuthAspect {
         
         HttpServletRequest request = attributes.getRequest();
         String currentRole = (String) request.getAttribute("currentUserRole");
+        String currentUserNo = (String) request.getAttribute("currentUserNo");
 
         if (currentRole == null) {
-            return Result.error("未登录或身份失效！");
+            return Result.error(ErrorCode.UNAUTHORIZED);
         }
 
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
@@ -46,12 +50,33 @@ public class RoleAuthAspect {
         if (requireRole != null) {
             boolean hasPermission = Arrays.asList(requireRole.value()).contains(currentRole);
             if (!hasPermission) {
-                // 🛑 将 System.err 替换为 log.warn
-                log.warn("🚫 拦截越权访问: 用户角色={}, 尝试访问={}", currentRole, request.getRequestURI());
-                return Result.error("非法操作：您无权执行此操作！");
+                String clientIp = getClientIp(request);
+                
+                // 写入独立安全日志
+                securityLog.warn("【越权拦截】用户: {}, 角色: {}, 尝试访问: {}, IP: {}", 
+                        currentUserNo != null ? currentUserNo : "未知", 
+                        currentRole, 
+                        request.getRequestURI(), 
+                        clientIp);
+                        
+                return Result.error(ErrorCode.FORBIDDEN.getCode(), "非法操作：您无权执行此操作！");
             }
         }
 
         return joinPoint.proceed();
+    }
+
+    /**
+     * 获取请求的真实客户端 IP
+     */
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        if (ip != null && ip.contains(",")) {
+            ip = ip.split(",")[0].trim();
+        }
+        return ip;
     }
 }
