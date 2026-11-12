@@ -3,7 +3,7 @@ package com.lab.labsystem.controller;
 import com.lab.labsystem.common.Result;
 import com.lab.labsystem.dto.request.LoginDTO;
 import com.lab.labsystem.dto.request.RefreshTokenDTO;
-import com.lab.labsystem.service.AuthService;
+import com.lab.labsystem.service.AuthFacade;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,34 +17,35 @@ import java.util.Map;
 @RequestMapping("/api")
 public class LoginController {
 
-    private final AuthService authService;
+    // 注入门面层
+    private final AuthFacade authFacade;
 
-    public LoginController(AuthService authService) {
-        this.authService = authService;
+    public LoginController(AuthFacade authFacade) {
+        this.authFacade = authFacade;
     }
 
     @Operation(summary = "获取图形验证码")
     @GetMapping("/captcha")
     public Result<Object> getCaptcha() {
-        return Result.success(authService.generateCaptcha());
+        return Result.success(authFacade.generateCaptcha());
     }
 
     @Operation(summary = "学生登录")
     @PostMapping("/login/student")
     public Result<Object> studentLogin(@Valid @RequestBody LoginDTO dto, HttpServletRequest request) {
-        return Result.success(authService.loginStudent(dto, request));
+        return Result.success(authFacade.loginStudent(dto, request));
     }
 
     @Operation(summary = "教师登录")
     @PostMapping("/login/teacher")
     public Result<Object> teacherLogin(@Valid @RequestBody LoginDTO dto, HttpServletRequest request) {
-        return Result.success(authService.loginTeacher(dto, request));
+        return Result.success(authFacade.loginTeacher(dto, request));
     }
 
     @Operation(summary = "管理员登录")
     @PostMapping("/login/admin")
     public Result<Object> adminLogin(@Valid @RequestBody LoginDTO dto, HttpServletRequest request) {
-        return Result.success(authService.loginAdmin(dto, request));
+        return Result.success(authFacade.loginAdmin(dto, request));
     }
 
     @Operation(summary = "【测试专用】免验证码登录")
@@ -54,13 +55,13 @@ public class LoginController {
             @RequestParam String role,
             HttpServletRequest request) {
         // 测试接口保持原样，因为参数少
-        return Result.success(authService.testLogin(username, role, request));
+        return Result.success(authFacade.testLogin(username, role, request));
     }
 
     @Operation(summary = "退出登录")
     @PostMapping("/logout")
     public Result<String> logout(HttpServletRequest request) {
-        return Result.success(authService.logout(request));
+        return Result.success(authFacade.logout(request));
     }
 
     @Operation(summary = "获取WebSocket连接票据")
@@ -68,12 +69,12 @@ public class LoginController {
     public Result<String> getWsTicket(HttpServletRequest request) {
         String userNo = (String) request.getAttribute("currentUserNo");
         String role = (String) request.getAttribute("currentUserRole");
-        return Result.success(authService.issueWsTicket(userNo, role));
+        return Result.success(authFacade.issueWsTicket(userNo, role));
     }
 
     @Operation(summary = "刷新 Access Token")
     @PostMapping("/refresh-token")
     public Result<Object> refreshToken(@Valid @RequestBody RefreshTokenDTO dto) {
-        return Result.success(authService.refreshToken(dto));
+        return Result.success(authFacade.refreshToken(dto));
     }
 }

@@ -1,26 +1,15 @@
 package com.lab.labsystem.service;
 
 import com.lab.labsystem.dto.request.LoginDTO;
-import com.lab.labsystem.dto.request.RefreshTokenDTO;
+import com.lab.labsystem.vo.LoginUserVO;
 import jakarta.servlet.http.HttpServletRequest;
 
-import java.util.Map;
-
 public interface AuthService {
-
     Object generateCaptcha();
-
-    Map<String, Object> loginStudent(LoginDTO dto, HttpServletRequest request);
-
-    Map<String, Object> loginTeacher(LoginDTO dto, HttpServletRequest request);
-
-    Map<String, Object> loginAdmin(LoginDTO dto, HttpServletRequest request);
-
-    Map<String, Object> testLogin(String username, String role, HttpServletRequest request);
-
-    String logout(HttpServletRequest request);
-
-    String issueWsTicket(String userNo, String role);
-
-    Map<String, Object> refreshToken(RefreshTokenDTO dto);
+    
+    // 只返回用户信息，不处理 Token
+    LoginUserVO verifyStudent(LoginDTO dto, HttpServletRequest request);
+    LoginUserVO verifyTeacher(LoginDTO dto, HttpServletRequest request);
+    LoginUserVO verifyAdmin(LoginDTO dto, HttpServletRequest request);
+    LoginUserVO verifyTestLogin(String username, String role, HttpServletRequest request);
 }

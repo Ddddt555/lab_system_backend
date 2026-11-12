@@ -3,9 +3,7 @@ package com.lab.labsystem.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.CaptchaService;
-import com.lab.labsystem.common.JwtUtil;
 import com.lab.labsystem.dto.request.LoginDTO;
-import com.lab.labsystem.dto.request.RefreshTokenDTO;
 import com.lab.labsystem.entity.Student;
 import com.lab.labsystem.entity.SysAdmin;
 import com.lab.labsystem.entity.SysLog;
@@ -17,9 +15,7 @@ import com.lab.labsystem.mapper.TeacherMapper;
 import com.lab.labsystem.service.AdminService;
 import com.lab.labsystem.service.AuthService;
 import com.lab.labsystem.vo.LoginUserVO;
-import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
@@ -29,29 +25,13 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
 
-@Slf4j
 @Service
 public class AuthServiceImpl implements AuthService {
 
     private static final int MAX_FAIL_COUNT = 5;
     private static final String LOGIN_FAIL_PREFIX = "login:fail:";
-
-    private static final String REFRESH_TOKEN_PREFIX = "refresh_token:";
-    private static final String BLACKLIST_PREFIX = "jwt:blacklist:";
-    private static final String WS_TICKET_PREFIX = "ws:ticket:";
-    private static final String USER_DEVICES_PREFIX = "user:devices:";
-
-    private static final int MAX_DEVICES = 5;
-
-    private static final Duration REFRESH_TOKEN_TTL = Duration.ofDays(7);
     private static final Duration LOCK_TTL = Duration.ofMinutes(10);
-    private static final Duration WS_TICKET_TTL = Duration.ofSeconds(30);
 
     private final StudentMapper studentMapper;
     private final TeacherMapper teacherMapper;
@@ -66,15 +46,9 @@ public class AuthServiceImpl implements AuthService {
     @Value("${app.security.test-login-enabled:false}")
     private boolean testLoginEnabled;
 
-    public AuthServiceImpl(StudentMapper studentMapper,
-                           TeacherMapper teacherMapper,
-                           SysAdminMapper sysAdminMapper,
-                           AdminService adminService,
-                           BCryptPasswordEncoder passwordEncoder,
-                           SysLogMapper logMapper,
-                           CaptchaService captchaService,
-                           StringRedisTemplate stringRedisTemplate,
-                           Environment environment) {
+    public AuthServiceImpl(StudentMapper studentMapper, TeacherMapper teacherMapper, SysAdminMapper sysAdminMapper,
+                           AdminService adminService, BCryptPasswordEncoder passwordEncoder, SysLogMapper logMapper,
+                           CaptchaService captchaService, StringRedisTemplate stringRedisTemplate, Environment environment) {
         this.studentMapper = studentMapper;
         this.teacherMapper = teacherMapper;
         this.sysAdminMapper = sysAdminMapper;
@@ -92,21 +66,18 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public Map<String, Object> loginStudent(LoginDTO dto, HttpServletRequest request) {
+    public LoginUserVO verifyStudent(LoginDTO dto, HttpServletRequest request) {
         String username = dto.getUsername();
-        String password = dto.getPassword();
-        
         checkAccountLocked("student", username);
         verifyCaptcha(dto.getCaptchaKey(), dto.getCaptchaCode());
 
-        Student student = studentMapper.selectOne(
-                new QueryWrapper<Student>().eq("student_no", username));
+        Student student = studentMapper.selectOne(new QueryWrapper<Student>().eq("student_no", username));
         if (student == null) {
             saveLoginLog("学生-" + username, "登录失败：学号不存在", request);
             throw new BusinessException("学号或密码错误！");
         }
 
-        if (!passwordEncoder.matches(password, student.getPassword())) {
+        if (!passwordEncoder.matches(dto.getPassword(), student.getPassword())) {
             saveLoginLog("学生-" + username, "登录失败：密码错误", request);
             recordLoginFail("student", username);
             throw new BusinessException("学号或密码错误！");
@@ -115,26 +86,24 @@ public class AuthServiceImpl implements AuthService {
         clearLoginFail("student", username);
         saveLoginLog("学生-" + username, "登录成功", request);
 
-        return issueTokens(student.getStudentNo(), student.getName(), "student",
-                isMustChange(student.getMustChangePassword()), dto.getDeviceId());
+        LoginUserVO vo = new LoginUserVO(student.getStudentNo(), student.getName(), "student");
+        vo.setMustChangePassword(isMustChange(student.getMustChangePassword()));
+        return vo;
     }
 
     @Override
-    public Map<String, Object> loginTeacher(LoginDTO dto, HttpServletRequest request) {
+    public LoginUserVO verifyTeacher(LoginDTO dto, HttpServletRequest request) {
         String username = dto.getUsername();
-        String password = dto.getPassword();
-        
         checkAccountLocked("teacher", username);
         verifyCaptcha(dto.getCaptchaKey(), dto.getCaptchaCode());
 
-        Teacher teacher = teacherMapper.selectOne(
-                new QueryWrapper<Teacher>().eq("work_no", username));
+        Teacher teacher = teacherMapper.selectOne(new QueryWrapper<Teacher>().eq("work_no", username));
         if (teacher == null) {
             saveLoginLog("教师-" + username, "登录失败：工号不存在", request);
             throw new BusinessException("工号或密码错误！");
         }
 
-        if (!passwordEncoder.matches(password, teacher.getPassword())) {
+        if (!passwordEncoder.matches(dto.getPassword(), teacher.getPassword())) {
             saveLoginLog("教师-" + username, "登录失败：密码错误", request);
             recordLoginFail("teacher", username);
             throw new BusinessException("工号或密码错误！");
@@ -143,19 +112,18 @@ public class AuthServiceImpl implements AuthService {
         clearLoginFail("teacher", username);
         saveLoginLog("教师-" + username, "登录成功", request);
 
-        return issueTokens(teacher.getWorkNo(), teacher.getName(), "teacher",
-                isMustChange(teacher.getMustChangePassword()), dto.getDeviceId());
+        LoginUserVO vo = new LoginUserVO(teacher.getWorkNo(), teacher.getName(), "teacher");
+        vo.setMustChangePassword(isMustChange(teacher.getMustChangePassword()));
+        return vo;
     }
 
     @Override
-    public Map<String, Object> loginAdmin(LoginDTO dto, HttpServletRequest request) {
+    public LoginUserVO verifyAdmin(LoginDTO dto, HttpServletRequest request) {
         String username = dto.getUsername();
-        String password = dto.getPassword();
-        
         checkAccountLocked("admin", username);
         verifyCaptcha(dto.getCaptchaKey(), dto.getCaptchaCode());
 
-        if (!adminService.checkLogin(username, password)) {
+        if (!adminService.checkLogin(username, dto.getPassword())) {
             saveLoginLog("管理员-" + username, "登录失败：账号或密码错误", request);
             recordLoginFail("admin", username);
             throw new BusinessException("管理员账号或密码错误！");
@@ -164,145 +132,25 @@ public class AuthServiceImpl implements AuthService {
         clearLoginFail("admin", username);
         saveLoginLog("管理员-" + username, "登录成功", request);
 
-        SysAdmin admin = sysAdminMapper.selectOne(
-                new QueryWrapper<SysAdmin>().eq("username", username));
-        boolean mustChange = admin != null && isMustChange(admin.getMustChangePassword());
-
-        return issueTokens(username, "超级管理员", "admin", mustChange, dto.getDeviceId());
+        SysAdmin admin = sysAdminMapper.selectOne(new QueryWrapper<SysAdmin>().eq("username", username));
+        LoginUserVO vo = new LoginUserVO(username, "超级管理员", "admin");
+        vo.setMustChangePassword(admin != null && isMustChange(admin.getMustChangePassword()));
+        return vo;
     }
 
     @Override
-    public Map<String, Object> testLogin(String username, String role, HttpServletRequest request) {
+    public LoginUserVO verifyTestLogin(String username, String role, HttpServletRequest request) {
         if (environment.acceptsProfiles(Profiles.of("prod"))) {
-            throw new org.springframework.web.server.ResponseStatusException(
-                    org.springframework.http.HttpStatus.NOT_FOUND, "Not Found");
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "Not Found");
         }
-
         if (!testLoginEnabled) {
             throw new BusinessException("【测试接口已禁用】请勿在生产环境尝试非法登录！");
         }
-
         if (!"student".equals(role) && !"teacher".equals(role) && !"admin".equals(role)) {
             throw new BusinessException("非法的角色类型！");
         }
-
-        String deviceId = "test-device";
-        String accessToken = JwtUtil.generateAccessToken(username, role, deviceId);
-        String refreshToken = JwtUtil.generateRefreshToken(username, role, deviceId);
-        stringRedisTemplate.opsForValue()
-                .set(REFRESH_TOKEN_PREFIX + username + ":" + deviceId, refreshToken, REFRESH_TOKEN_TTL);
-
-        Map<String, Object> data = new HashMap<>();
-        data.put("user", new LoginUserVO(username, "测试用户-" + username, role));
-        data.put("token", accessToken);
-        data.put("refreshToken", refreshToken);
-
         saveLoginLog("测试登录-" + username, "使用免验证码通道", request);
-        return data;
-    }
-
-    @Override
-    public String logout(HttpServletRequest request) {
-        String token = request.getHeader("Authorization");
-        if (token != null && token.startsWith("Bearer ")) {
-            token = token.substring(7);
-            try {
-                Claims claims = JwtUtil.parseToken(token);
-                String jti = claims.getId();
-                String userNo = claims.getSubject();
-                String deviceId = claims.get("deviceId", String.class);
-                Date expiration = claims.getExpiration();
-                long remainingSeconds = (expiration.getTime() - System.currentTimeMillis()) / 1000;
-
-                if (remainingSeconds > 0 && jti != null) {
-                    stringRedisTemplate.opsForValue().set(
-                            BLACKLIST_PREFIX + jti, "1", Duration.ofSeconds(remainingSeconds));
-                }
-                if (userNo != null && deviceId != null) {
-                    stringRedisTemplate.delete(REFRESH_TOKEN_PREFIX + userNo + ":" + deviceId);
-                    stringRedisTemplate.opsForZSet().remove(USER_DEVICES_PREFIX + userNo, deviceId);
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        return "退出成功";
-    }
-
-    @Override
-    public String issueWsTicket(String userNo, String role) {
-        if (userNo == null) {
-            throw new BusinessException("未登录，无法获取票据");
-        }
-        String ticket = UUID.randomUUID().toString().replace("-", "");
-        stringRedisTemplate.opsForValue()
-                .set(WS_TICKET_PREFIX + ticket, userNo + ":" + role, WS_TICKET_TTL);
-        return ticket;
-    }
-
-    @Override
-    public Map<String, Object> refreshToken(RefreshTokenDTO dto) {
-        String refreshToken = dto.getRefreshToken();
-        String deviceId = dto.getDeviceId();
-
-        if (refreshToken == null || refreshToken.isEmpty()) {
-            throw new BusinessException("缺少刷新令牌！");
-        }
-        try {
-            Claims claims = JwtUtil.parseToken(refreshToken);
-            String userNo = claims.getSubject();
-            String role = (String) claims.get("role");
-            String type = (String) claims.get("type");
-            String tokenDeviceId = (String) claims.get("deviceId");
-
-            if (!"refresh".equals(type)) {
-                throw new BusinessException("无效的刷新令牌类型！");
-            }
-
-            if (tokenDeviceId != null && deviceId != null && !tokenDeviceId.equals(deviceId)) {
-                throw new BusinessException("设备环境异常，请重新登录！");
-            }
-
-            String redisKey = REFRESH_TOKEN_PREFIX + userNo + ":" + deviceId;
-            String cachedToken = stringRedisTemplate.opsForValue().get(redisKey);
-            
-            if (cachedToken == null) {
-                throw new BusinessException("刷新令牌已失效，请重新登录！");
-            }
-
-            if (!cachedToken.equals(refreshToken)) {
-                stringRedisTemplate.delete(redisKey);
-                
-                SysLog securityLog = new SysLog();
-                securityLog.setOperator("用户-" + userNo);
-                securityLog.setAction("安全拦截：设备 " + deviceId + " 检测到无效刷新令牌，已强制该设备下线");
-                securityLog.setCreateTime(LocalDateTime.now());
-                securityLog.setSuccess(0);
-                logMapper.insert(securityLog);
-
-                throw new BusinessException("安全警告：检测到异常刷新操作，已被强制下线，请重新登录！");
-            }
-
-            stringRedisTemplate.delete(redisKey);
-
-            String newAccessToken = JwtUtil.generateAccessToken(userNo, role, deviceId);
-            String newRefreshToken = JwtUtil.generateRefreshToken(userNo, role, deviceId);
-
-            stringRedisTemplate.opsForValue()
-                    .set(redisKey, newRefreshToken, REFRESH_TOKEN_TTL);
-
-            stringRedisTemplate.opsForZSet().add(USER_DEVICES_PREFIX + userNo, deviceId, System.currentTimeMillis());
-            stringRedisTemplate.expire(USER_DEVICES_PREFIX + userNo, REFRESH_TOKEN_TTL);
-
-            Map<String, Object> data = new HashMap<>();
-            data.put("token", newAccessToken);
-            data.put("refreshToken", newRefreshToken); 
-            return data;
-
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new BusinessException("刷新令牌无效或已过期！");
-        }
+        return new LoginUserVO(username, "测试用户-" + username, role);
     }
 
     private void verifyCaptcha(String captchaKey, String captchaCode) {
@@ -315,53 +163,15 @@ public class AuthServiceImpl implements AuthService {
         return flag != null && flag == 1;
     }
 
-    private Map<String, Object> issueTokens(String userNo, String name, String role, boolean mustChange, String deviceId) {
-        String accessToken = JwtUtil.generateAccessToken(userNo, role, deviceId);
-        String refreshToken = JwtUtil.generateRefreshToken(userNo, role, deviceId);
-        String redisKey = REFRESH_TOKEN_PREFIX + userNo + ":" + deviceId;
-        
-        String userDevicesKey = USER_DEVICES_PREFIX + userNo;
-        long now = System.currentTimeMillis();
-        stringRedisTemplate.opsForZSet().add(userDevicesKey, deviceId, now);
-        stringRedisTemplate.expire(userDevicesKey, REFRESH_TOKEN_TTL);
-
-        Long deviceCount = stringRedisTemplate.opsForZSet().zCard(userDevicesKey);
-        if (deviceCount != null && deviceCount > MAX_DEVICES) {
-            Set<String> oldestDevices = stringRedisTemplate.opsForZSet().range(userDevicesKey, 0, 0);
-            if (oldestDevices != null && !oldestDevices.isEmpty()) {
-                String oldestDeviceId = oldestDevices.iterator().next();
-                
-                stringRedisTemplate.opsForZSet().remove(userDevicesKey, oldestDeviceId);
-                stringRedisTemplate.delete(REFRESH_TOKEN_PREFIX + userNo + ":" + oldestDeviceId);
-                
-                log.warn("用户 {} 的在线设备数超过 {} 台，已自动踢出最旧设备: {}", userNo, MAX_DEVICES, oldestDeviceId);
-            }
-        }
-
-        stringRedisTemplate.opsForValue().set(redisKey, refreshToken, REFRESH_TOKEN_TTL);
-
-        LoginUserVO userVO = new LoginUserVO(userNo, name, role);
-        userVO.setMustChangePassword(mustChange);
-
-        Map<String, Object> data = new HashMap<>();
-        data.put("user", userVO);
-        data.put("token", accessToken);
-        data.put("refreshToken", refreshToken);
-        return data;
-    }
-
     private void saveLoginLog(String operator, String action, HttpServletRequest request) {
         SysLog log = new SysLog();
         log.setOperator(operator);
         log.setAction(action);
         log.setCreateTime(LocalDateTime.now());
         log.setSuccess(action.contains("成功") ? 1 : 0);
-
         if (request != null) {
             String ip = request.getHeader("X-Forwarded-For");
-            if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
-                ip = request.getRemoteAddr();
-            }
+            if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) ip = request.getRemoteAddr();
             log.setIp(ip);
             log.setMethod(request.getMethod());
             log.setUri(request.getRequestURI());
@@ -371,8 +181,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private void checkAccountLocked(String role, String username) {
-        String key = LOGIN_FAIL_PREFIX + role + ":" + username;
-        String countStr = stringRedisTemplate.opsForValue().get(key);
+        String countStr = stringRedisTemplate.opsForValue().get(LOGIN_FAIL_PREFIX + role + ":" + username);
         if (countStr != null && Integer.parseInt(countStr) >= MAX_FAIL_COUNT) {
             throw new BusinessException("密码错误次数过多，账号已被锁定 10 分钟，请稍后再试！");
         }
@@ -382,12 +191,8 @@ public class AuthServiceImpl implements AuthService {
         String key = LOGIN_FAIL_PREFIX + role + ":" + username;
         Long count = stringRedisTemplate.opsForValue().increment(key);
         if (count != null) {
-            if (count == 1) {
-                stringRedisTemplate.expire(key, LOCK_TTL);
-            }
-            if (count >= MAX_FAIL_COUNT) {
-                throw new BusinessException("密码错误次数过多，账号已被锁定 10 分钟，请稍后再试！");
-            }
+            if (count == 1) stringRedisTemplate.expire(key, LOCK_TTL);
+            if (count >= MAX_FAIL_COUNT) throw new BusinessException("密码错误次数过多，账号已被锁定 10 分钟，请稍后再试！");
         }
     }
 

@@ -2,6 +2,7 @@ package com.lab.labsystem.config;
 
 import com.lab.labsystem.common.JwtUtil;
 import com.lab.labsystem.service.MustChangePasswordCache;
+import com.lab.labsystem.service.TokenService;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -12,11 +13,14 @@ import org.springframework.web.servlet.HandlerInterceptor;
 @Slf4j
 public class JwtInterceptor implements HandlerInterceptor {
 
+    private final TokenService tokenService;
     private final StringRedisTemplate stringRedisTemplate;
     private final MustChangePasswordCache mustChangePasswordCache;
 
-    public JwtInterceptor(StringRedisTemplate stringRedisTemplate,
+    public JwtInterceptor(TokenService tokenService,
+                          StringRedisTemplate stringRedisTemplate,
                           MustChangePasswordCache mustChangePasswordCache) {
+        this.tokenService = tokenService;
         this.stringRedisTemplate = stringRedisTemplate;
         this.mustChangePasswordCache = mustChangePasswordCache;
     }
@@ -50,8 +54,8 @@ public class JwtInterceptor implements HandlerInterceptor {
                 }
 
                 String jti = claims.getId();
-                // 校验黑名单
-                if (jti != null && Boolean.TRUE.equals(stringRedisTemplate.hasKey("jwt:blacklist:" + jti))) {
+                // 校验黑名单（调用 TokenService）
+                if (tokenService.isBlacklisted(jti)) {
                     log.warn("试图使用已被拉黑的 Token 访问接口: {}", request.getRequestURI());
                     response.setStatus(401);
                     return false;
