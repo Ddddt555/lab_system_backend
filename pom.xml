@@ -82,10 +82,18 @@
 			<optional>true</optional>
 		</dependency>
 
-		<!-- 测试 -->
+		<!-- ==================== 测试依赖 ==================== -->
+		<!-- 基础测试 (JUnit, Mockito 等) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- Spring Boot 4 拆分出的 WebMvc 测试切片（支持 @WebMvcTest 和 MockMvc） -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 
@@ -95,14 +103,14 @@
 			<artifactId>spring-boot-resttestclient</artifactId>
 			<scope>test</scope>
 		</dependency>
-		<!-- TestRestTemplate 的自动配置依赖 RestTemplateBuilder，
-		     该类位于 spring-boot-restclient 模块；Boot 4 不再从 classpath 自动推断，
-		     缺少时 @AutoConfigureTestRestTemplate 会导致上下文加载失败 -->
+		
+		<!-- TestRestTemplate 的自动配置依赖 RestTemplateBuilder -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-restclient</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- ================================================= -->
 
 		<!-- MyBatis-Plus -->
 		<dependency>
@@ -237,8 +245,6 @@
 		</dependency>
 
 		<!-- Flyway 数据库版本控制 -->
-		<!-- Boot 4 将 Flyway 自动配置拆到 spring-boot-flyway 模块：
-		     只有 flyway-core 时不会执行迁移（全新数据库将没有表） -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-flyway</artifactId>
@@ -247,11 +253,11 @@
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>
 		</dependency>
-		<!-- Flyway 对 MySQL 的扩展支持 -->
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-mysql</artifactId>
 		</dependency>
+
 		<!-- 参数校验 (JSR 380) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
