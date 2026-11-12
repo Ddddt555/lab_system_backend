@@ -1,6 +1,8 @@
 package com.lab.labsystem.service.teacher.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
 import com.lab.labsystem.service.teacher.TeacherScoreService;
@@ -22,7 +24,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import com.lab.labsystem.common.BatchOperations;
-import com.lab.labsystem.common.BusinessException;
 
 @Service
 public class TeacherScoreServiceImpl implements TeacherScoreService {
@@ -48,11 +49,11 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
     @Override
     public String saveScore(String currentWorkNo, String studentNo, String classNo, Double dailyScore) {
         List<ExpProject> projects = projectMapper.selectList(new QueryWrapper<ExpProject>().eq("class_no", classNo));
-        if (projects.isEmpty()) throw new BusinessException("该教学班暂无实验项目");
+        if (projects.isEmpty()) throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "该教学班暂无实验项目");
         List<String> projectNos = projects.stream().map(ExpProject::getProjectNo).collect(Collectors.toList());
 
         List<ExpSession> mySessions = sessionMapper.selectList(new QueryWrapper<ExpSession>().in("project_no", projectNos).eq("work_no", currentWorkNo));
-        if (mySessions.isEmpty()) throw new BusinessException("非法操作：您无权录入该班级成绩！");
+        if (mySessions.isEmpty()) throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权录入该班级成绩！");
 
         List<ExpReport> reports = reportMapper.selectList(new QueryWrapper<ExpReport>().eq("student_no", studentNo).in("project_no", projectNos).eq("is_latest", 1).isNotNull("score"));
         double avgReportScore = 0.0;
@@ -226,15 +227,15 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
     @Transactional(rollbackFor = Exception.class)
     public String updateWeight(String currentWorkNo, String classNo, Integer dailyWeight, Integer reportWeight) {
         if (dailyWeight == null || reportWeight == null || dailyWeight < 0 || reportWeight < 0) {
-            throw new BusinessException("权重不能为空或负数！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "权重不能为空或负数！");
         }
         if (dailyWeight + reportWeight != 100) {
-            throw new BusinessException("权重之和必须等于 100%！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "权重之和必须等于 100%！");
         }
 
         TeachClass tc = teachClassMapper.selectById(classNo);
         if (tc == null || !currentWorkNo.equals(tc.getWorkNo())) {
-            throw new BusinessException("非法操作：您无权修改该班级权重！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权修改该班级权重！");
         }
         tc.setDailyWeight(dailyWeight);
         tc.setReportWeight(reportWeight);

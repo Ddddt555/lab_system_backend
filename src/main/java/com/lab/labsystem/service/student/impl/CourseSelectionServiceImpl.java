@@ -3,6 +3,7 @@ package com.lab.labsystem.service.student.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.entity.ExpCourse;
@@ -115,7 +116,7 @@ public class CourseSelectionServiceImpl implements CourseSelectionService {
                 .eq("student_no", studentNo)
                 .eq("class_no", classNo);
         if (studentTeachClassMapper.selectCount(qw) > 0) {
-            throw new BusinessException("你已经加入该教学班了，请勿重复操作！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "你已经加入该教学班了，请勿重复操作！");
         }
 
         StudentTeachClass stc = new StudentTeachClass();
@@ -145,7 +146,7 @@ public class CourseSelectionServiceImpl implements CourseSelectionService {
                 QueryWrapper<StudentBooking> bookQw = new QueryWrapper<StudentBooking>()
                         .eq("student_no", studentNo).eq("status", 1).in("session_no", sessionNos);
                 if (bookingMapper.selectCount(bookQw) > 0) {
-                    throw new BusinessException("你已预约了该班级下的实验场次，请先取消预约再退课！");
+                    throw BusinessException.of(ErrorCode.BAD_REQUEST, "你已预约了该班级下的实验场次，请先取消预约再退课！");
                 }
             }
         }

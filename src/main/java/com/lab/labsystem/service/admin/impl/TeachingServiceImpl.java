@@ -3,6 +3,7 @@ package com.lab.labsystem.service.admin.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.dto.request.TeachClassCreateDTO;
@@ -119,12 +120,12 @@ public class TeachingServiceImpl implements TeachingService {
         long projects = projectMapper.selectCount(
                 new QueryWrapper<ExpProject>().eq("class_no", classNo));
         if (projects > 0) {
-            throw new BusinessException("该教学班下还有 " + projects + " 个实验项目，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该教学班下还有 " + projects + " 个实验项目，请先处理后再删除！");
         }
         long selections = studentTeachClassMapper.selectCount(
                 new QueryWrapper<StudentTeachClass>().eq("class_no", classNo));
         if (selections > 0) {
-            throw new BusinessException("该教学班下还有 " + selections + " 名学生的选课记录，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该教学班下还有 " + selections + " 名学生的选课记录，请先处理后再删除！");
         }
         teachClassMapper.deleteById(classNo);
     }

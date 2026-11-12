@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.dto.AttendanceExportDTO;
 import com.lab.labsystem.entity.AttendanceRecord;
 import com.lab.labsystem.entity.ExpProject;
@@ -59,7 +60,7 @@ public class AttendanceServiceImpl implements AttendanceService {
     public String startAttendance(String currentWorkNo, String sessionNo) {
         ExpSession session = sessionMapper.selectById(sessionNo);
         if (session == null || !session.getWorkNo().equals(currentWorkNo)) {
-            throw new BusinessException("非法操作：您无权发起该场次签到！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权发起该场次签到！");
         }
         String code = String.format("%06d", new Random().nextInt(1000000));
         stringRedisTemplate.opsForValue().set("attendance:code:" + sessionNo, code, Duration.ofMinutes(15));
@@ -70,7 +71,7 @@ public class AttendanceServiceImpl implements AttendanceService {
     public List<StudentVO> getAttendanceList(String currentWorkNo, String sessionNo) {
         ExpSession session = sessionMapper.selectById(sessionNo);
         if (session == null || !session.getWorkNo().equals(currentWorkNo)) {
-            throw new BusinessException("非法操作：您无权查看该场次签到名单！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权查看该场次签到名单！");
         }
 
         List<AttendanceRecord> records = attendanceMapper.selectList(
@@ -107,21 +108,21 @@ public class AttendanceServiceImpl implements AttendanceService {
         Long bookCount = bookingMapper.selectCount(new QueryWrapper<StudentBooking>()
                 .eq("student_no", studentNo).eq("session_no", sessionNo).eq("status", 1));
         if (bookCount == 0) {
-            throw new BusinessException("签到失败：您未预约此场次！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "签到失败：您未预约此场次！");
         }
 
         String redisCode = stringRedisTemplate.opsForValue().get("attendance:code:" + sessionNo);
         if (redisCode == null) {
-            throw new BusinessException("签到失败：验证码已过期或教师未开启签到！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "签到失败：验证码已过期或教师未开启签到！");
         }
         if (!redisCode.equals(code)) {
-            throw new BusinessException("签到失败：验证码错误！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "签到失败：验证码错误！");
         }
 
         Long exist = attendanceMapper.selectCount(new QueryWrapper<AttendanceRecord>()
                 .eq("student_no", studentNo).eq("session_no", sessionNo));
         if (exist > 0) {
-            throw new BusinessException("您已经签到过了，请勿重复操作！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "您已经签到过了，请勿重复操作！");
         }
 
         AttendanceRecord record = new AttendanceRecord();
@@ -140,7 +141,7 @@ public class AttendanceServiceImpl implements AttendanceService {
     public void exportAttendance(String currentWorkNo, String sessionNo, HttpServletResponse response) throws Exception {
         ExpSession session = sessionMapper.selectById(sessionNo);
         if (session == null || !session.getWorkNo().equals(currentWorkNo)) {
-            throw new BusinessException("非法操作：您无权导出该场次考勤！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权导出该场次考勤！");
         }
 
         String projectName = "未知项目";

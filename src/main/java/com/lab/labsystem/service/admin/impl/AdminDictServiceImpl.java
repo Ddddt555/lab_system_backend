@@ -2,6 +2,7 @@ package com.lab.labsystem.service.admin.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.dto.request.DepartmentCreateDTO;
 import com.lab.labsystem.dto.request.TitleCreateDTO;
@@ -66,11 +67,11 @@ public class AdminDictServiceImpl implements AdminDictService {
         // 引用检查：专业、教师都挂在院系下，直接删除会产生悬空引用
         long majors = majorMapper.selectCount(new QueryWrapper<Major>().eq("dept_no", deptNo));
         if (majors > 0) {
-            throw new BusinessException("该院系下还有 " + majors + " 个专业，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该院系下还有 " + majors + " 个专业，请先处理后再删除！");
         }
         long teachers = teacherMapper.selectCount(new QueryWrapper<Teacher>().eq("dept_no", deptNo));
         if (teachers > 0) {
-            throw new BusinessException("该院系下还有 " + teachers + " 名教师，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该院系下还有 " + teachers + " 名教师，请先处理后再删除！");
         }
         departmentMapper.deleteById(deptNo);
     }
@@ -99,7 +100,7 @@ public class AdminDictServiceImpl implements AdminDictService {
     public void deleteTitle(String titleNo) {
         long teachers = teacherMapper.selectCount(new QueryWrapper<Teacher>().eq("title_no", titleNo));
         if (teachers > 0) {
-            throw new BusinessException("该职称下还有 " + teachers + " 名教师，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该职称下还有 " + teachers + " 名教师，请先处理后再删除！");
         }
         titleDictMapper.deleteById(titleNo);
     }

@@ -3,6 +3,7 @@ package com.lab.labsystem.service.teacher.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.FileTypeUtils;
 import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.common.PageResult;
@@ -85,12 +86,12 @@ public class TeacherProjectServiceImpl implements TeacherProjectService {
     @Override
     public String addProject(ProjectCreateDTO dto, String workNo) {
         if (dto.getClassNo() == null || dto.getClassNo().isEmpty()) {
-            throw new BusinessException("请选择所属教学班！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "请选择所属教学班！");
         }
 
         TeachClass tc = teachClassMapper.selectById(dto.getClassNo());
         if (tc == null || !workNo.equals(tc.getWorkNo())) {
-            throw new BusinessException("非法操作：您无权在该教学班下发布项目！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权在该教学班下发布项目！");
         }
 
         ExpProject project = new ExpProject();
@@ -108,29 +109,29 @@ public class TeacherProjectServiceImpl implements TeacherProjectService {
     @Override
     public String uploadGuide(MultipartFile file, String projectNo, String workNo) {
         if (file.isEmpty()) {
-            throw new BusinessException("文件不能为空！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "文件不能为空！");
         }
 
         ExpProject project = projectMapper.selectById(projectNo);
         if (project == null) {
-            throw new BusinessException("项目不存在！");
+            throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "项目不存在！");
         }
 
         TeachClass tc = teachClassMapper.selectById(project.getClassNo());
         if (tc == null || !workNo.equals(tc.getWorkNo())) {
-            throw new BusinessException("非法操作：您无权操作该项目！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权操作该项目！");
         }
 
         String originalFilename = file.getOriginalFilename();
         String suffix = originalFilename != null && originalFilename.contains(".")
                 ? originalFilename.substring(originalFilename.lastIndexOf(".")).toLowerCase() : "";
         if (!ALLOWED_EXTENSIONS.contains(suffix)) {
-            throw new BusinessException("文件格式非法！");
+            throw BusinessException.of(ErrorCode.FILE_INVALID, "文件格式非法！");
         }
 
         // 魔数深度校验：防止把可执行文件改名成 .pdf 上传
         if (!FileTypeUtils.isValidFile(file, suffix)) {
-            throw new BusinessException("文件内容与后缀不符，非法文件已被拦截！");
+            throw BusinessException.of(ErrorCode.FILE_INVALID, "文件内容与后缀不符，非法文件已被拦截！");
         }
 
         String newFileName = UUID.randomUUID().toString().replace("-", "") + suffix;
@@ -139,7 +140,7 @@ public class TeacherProjectServiceImpl implements TeacherProjectService {
             minioService.upload(file, newFileName);
         } catch (Exception e) {
             log.error("上传指导书到 MinIO 失败: {}", newFileName, e);
-            throw new BusinessException("上传指导书到对象存储失败，请重试！");
+            throw BusinessException.of(ErrorCode.SYSTEM_ERROR, "上传指导书到对象存储失败，请重试！");
         }
 
         try {
@@ -157,19 +158,19 @@ public class TeacherProjectServiceImpl implements TeacherProjectService {
     public String deleteProject(String projectNo, String workNo) {
         ExpProject project = projectMapper.selectById(projectNo);
         if (project == null) {
-            throw new BusinessException("实验项目不存在！");
+            throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "实验项目不存在！");
         }
 
         TeachClass tc = teachClassMapper.selectById(project.getClassNo());
         if (tc == null || !workNo.equals(tc.getWorkNo())) {
-            throw new BusinessException("非法操作：您无权删除该项目！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权删除该项目！");
         }
 
         long sessionCount = sessionMapper.selectCount(
                 new QueryWrapper<ExpSession>().eq("project_no", projectNo)
         );
         if (sessionCount > 0) {
-            throw new BusinessException("该项目下还有 " + sessionCount + " 个实验场次，请先取消排课后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该项目下还有 " + sessionCount + " 个实验场次，请先取消排课后再删除！");
         }
 
         // 引用检查：学生报告通过 project_no 关联项目。
@@ -178,7 +179,7 @@ public class TeacherProjectServiceImpl implements TeacherProjectService {
                 new QueryWrapper<ExpReport>().eq("project_no", projectNo)
         );
         if (reportCount > 0) {
-            throw new BusinessException("该项目下还有 " + reportCount + " 份学生报告，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该项目下还有 " + reportCount + " 份学生报告，请先处理后再删除！");
         }
 
         projectMapper.deleteById(projectNo);

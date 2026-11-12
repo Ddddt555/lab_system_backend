@@ -1,6 +1,7 @@
 package com.lab.labsystem.service.auth.impl;
 
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.JwtUtil;
 import com.lab.labsystem.entity.SysLog;
 import com.lab.labsystem.mapper.SysLogMapper;
@@ -73,7 +74,7 @@ public class TokenServiceImpl implements TokenService {
     @Override
     public Map<String, Object> refreshToken(String refreshToken, String deviceId) {
         if (refreshToken == null || refreshToken.isEmpty()) {
-            throw new BusinessException("缺少刷新令牌！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "缺少刷新令牌！");
         }
         try {
             Claims claims = JwtUtil.parseToken(refreshToken);
@@ -83,17 +84,17 @@ public class TokenServiceImpl implements TokenService {
             String tokenDeviceId = (String) claims.get("deviceId");
 
             if (!"refresh".equals(type)) {
-                throw new BusinessException("无效的刷新令牌类型！");
+                throw BusinessException.of(ErrorCode.TOKEN_INVALID, "无效的刷新令牌类型！");
             }
             if (tokenDeviceId != null && deviceId != null && !tokenDeviceId.equals(deviceId)) {
-                throw new BusinessException("设备环境异常，请重新登录！");
+                throw BusinessException.of(ErrorCode.TOKEN_INVALID, "设备环境异常，请重新登录！");
             }
 
             String redisKey = REFRESH_TOKEN_PREFIX + userNo + ":" + deviceId;
             String cachedToken = stringRedisTemplate.opsForValue().get(redisKey);
             
             if (cachedToken == null) {
-                throw new BusinessException("刷新令牌已失效，请重新登录！");
+                throw BusinessException.of(ErrorCode.TOKEN_INVALID, "刷新令牌已失效，请重新登录！");
             }
 
             if (!cachedToken.equals(refreshToken)) {
@@ -105,7 +106,7 @@ public class TokenServiceImpl implements TokenService {
                 securityLog.setSuccess(0);
                 logMapper.insert(securityLog);
 
-                throw new BusinessException("安全警告：检测到异常刷新操作，已被强制下线，请重新登录！");
+                throw BusinessException.of(ErrorCode.FORBIDDEN, "安全警告：检测到异常刷新操作，已被强制下线，请重新登录！");
             }
 
             stringRedisTemplate.delete(redisKey);
@@ -123,7 +124,7 @@ public class TokenServiceImpl implements TokenService {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new BusinessException("刷新令牌无效或已过期！");
+            throw BusinessException.of(ErrorCode.TOKEN_INVALID, "刷新令牌无效或已过期！");
         }
     }
 
@@ -153,7 +154,7 @@ public class TokenServiceImpl implements TokenService {
     @Override
     public String issueWsTicket(String userNo, String role) {
         if (userNo == null) {
-            throw new BusinessException("未登录，无法获取票据");
+            throw BusinessException.of(ErrorCode.UNAUTHORIZED, "未登录，无法获取票据");
         }
         String ticket = UUID.randomUUID().toString().replace("-", "");
         stringRedisTemplate.opsForValue().set(WS_TICKET_PREFIX + ticket, userNo + ":" + role, WS_TICKET_TTL);

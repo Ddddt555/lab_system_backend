@@ -10,7 +10,6 @@ import com.lab.labsystem.mapper.SysLogMapper;
 import com.lab.labsystem.mapper.TeacherMapper;
 import com.lab.labsystem.service.admin.AdminService;
 import com.lab.labsystem.service.auth.impl.AuthServiceImpl;
-
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -36,6 +35,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * 认证核心逻辑的单元测试。
+ * 覆盖验证码校验、防爆破锁定、查库比对密码等核心流程。
  */
 class AuthServiceImplTest {
 
@@ -97,12 +97,12 @@ class AuthServiceImplTest {
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.verifyStudent(buildLoginDTO("S001", "pwd", "k", "c"), request()));
 
-        assertEquals("密码错误次数过多，账号已被锁定 10 分钟，请稍后再试！", e.getMessage());
+        assertEquals("账号已被锁定，请稍后再试", e.getMessage());
         verify(captchaService, never()).verifyCaptcha(anyString(), anyString());
     }
 
     @Test
-    @DisplayName("验证码错误时直接拒绝")
+    @DisplayName("验证码错误时直接拒绝，不查询数据库")
     void rejectBadCaptcha() {
         when(ops.get(anyString())).thenReturn(null);
         when(captchaService.verifyCaptcha("k", "c")).thenReturn(false);
@@ -110,7 +110,7 @@ class AuthServiceImplTest {
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.verifyStudent(buildLoginDTO("S001", "pwd", "k", "c"), request()));
 
-        assertEquals("验证码错误或已过期，请重新输入！", e.getMessage());
+        assertEquals("验证码错误或已过期", e.getMessage());
         verify(studentMapper, never()).selectOne(any());
     }
 
@@ -124,7 +124,7 @@ class AuthServiceImplTest {
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.verifyStudent(buildLoginDTO("S404", "pwd", "k", "c"), request()));
 
-        assertEquals("学号或密码错误！", e.getMessage());
+        assertEquals("账号或密码错误", e.getMessage());
     }
 
     @Test
@@ -145,7 +145,7 @@ class AuthServiceImplTest {
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.verifyStudent(buildLoginDTO("S001", "bad", "k", "c"), request()));
 
-        assertEquals("学号或密码错误！", e.getMessage());
+        assertEquals("账号或密码错误", e.getMessage());
         verify(redis).expire(eq("login:fail:student:S001"), any());
     }
 

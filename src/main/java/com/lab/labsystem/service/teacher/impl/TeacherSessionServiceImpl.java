@@ -3,6 +3,7 @@ package com.lab.labsystem.service.teacher.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
@@ -80,20 +81,20 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
         // 3. 校验项目归属
         ExpProject project = projectMapper.selectById(session.getProjectNo());
         if (project == null) {
-            throw new BusinessException("实验项目不存在！");
+            throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "实验项目不存在！");
         }
         TeachClass tc = teachClassMapper.selectById(project.getClassNo());
         if (tc == null || !tc.getWorkNo().equals(workNo)) {
-            throw new BusinessException("非法操作：您无权安排其他老师的实验项目！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权安排其他老师的实验项目！");
         }
 
         // 4. 校验实验室容量
         LabRoom room = labRoomMapper.selectById(session.getRoomNo());
         if (room == null) {
-            throw new BusinessException("实验室不存在！");
+            throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "实验室不存在！");
         }
         if (session.getCapacity() > room.getCapacity()) {
-            throw new BusinessException("排课容量不能超过实验室容量！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课容量不能超过实验室容量！");
         }
 
         // 5. 三重冲突校验
@@ -106,18 +107,18 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
         List<ExpSession> existSessions = sessionMapper.selectList(conflictQw);
         for (ExpSession exist : existSessions) {
             if (exist.getWorkNo().equals(workNo)) {
-                throw new BusinessException("排课失败：您在【第" + session.getWeekNum() + "周 "
+                throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：您在【第" + session.getWeekNum() + "周 "
                         + weekDayName(session.getDayOfWeek()) + " " + session.getPeriod() + "】已有其他排课！");
             }
             if (exist.getRoomNo().equals(session.getRoomNo())) {
-                throw new BusinessException("排课失败：实验室【" + room.getRoomName() + "】在【第"
+                throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：实验室【" + room.getRoomName() + "】在【第"
                         + session.getWeekNum() + "周 " + weekDayName(session.getDayOfWeek())
                         + " " + session.getPeriod() + "】已被占用！");
             }
             ExpProject existProject = projectMapper.selectById(exist.getProjectNo());
             if (existProject != null && existProject.getClassNo() != null
                     && existProject.getClassNo().equals(project.getClassNo())) {
-                throw new BusinessException("排课失败：该教学班在此时段已经有排课了！");
+                throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：该教学班在此时段已经有排课了！");
             }
         }
 
@@ -181,7 +182,7 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
     public List<StudentVO> listSessionBookings(String sessionNo, String workNo) {
         ExpSession session = sessionMapper.selectById(sessionNo);
         if (session == null || !session.getWorkNo().equals(workNo)) {
-            throw new BusinessException("非法操作：您无权查看！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权查看！");
         }
 
         List<StudentBooking> bookings = bookingMapper.selectList(
@@ -212,7 +213,7 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
     public String deleteSession(String sessionNo, String workNo) {
         ExpSession session = sessionMapper.selectById(sessionNo);
         if (session == null || !session.getWorkNo().equals(workNo)) {
-            throw new BusinessException("非法操作！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作！");
         }
 
         sessionMapper.deleteById(sessionNo);
@@ -235,7 +236,7 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
                                                 Integer dayOfWeek, String period) {
         SysSemester semester = semesterMapper.selectById(semesterName);
         if (semester == null) {
-            throw new BusinessException("排课失败：该学期配置不存在！");
+            throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "排课失败：该学期配置不存在！");
         }
         LocalDate targetDate = semester.getStartDate()
                 .plusWeeks(weekNum - 1).plusDays(dayOfWeek - 1);

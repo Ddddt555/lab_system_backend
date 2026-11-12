@@ -3,6 +3,7 @@ package com.lab.labsystem.service.auth.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.CaptchaService;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.dto.request.LoginDTO;
 import com.lab.labsystem.entity.Student;
 import com.lab.labsystem.entity.SysAdmin;
@@ -74,13 +75,13 @@ public class AuthServiceImpl implements AuthService {
         Student student = studentMapper.selectOne(new QueryWrapper<Student>().eq("student_no", username));
         if (student == null) {
             saveLoginLog("学生-" + username, "登录失败：学号不存在", request);
-            throw new BusinessException("学号或密码错误！");
+            throw new BusinessException(ErrorCode.LOGIN_FAILED);
         }
 
         if (!passwordEncoder.matches(dto.getPassword(), student.getPassword())) {
             saveLoginLog("学生-" + username, "登录失败：密码错误", request);
             recordLoginFail("student", username);
-            throw new BusinessException("学号或密码错误！");
+            throw new BusinessException(ErrorCode.LOGIN_FAILED);
         }
 
         clearLoginFail("student", username);
@@ -100,13 +101,13 @@ public class AuthServiceImpl implements AuthService {
         Teacher teacher = teacherMapper.selectOne(new QueryWrapper<Teacher>().eq("work_no", username));
         if (teacher == null) {
             saveLoginLog("教师-" + username, "登录失败：工号不存在", request);
-            throw new BusinessException("工号或密码错误！");
+            throw new BusinessException(ErrorCode.LOGIN_FAILED);
         }
 
         if (!passwordEncoder.matches(dto.getPassword(), teacher.getPassword())) {
             saveLoginLog("教师-" + username, "登录失败：密码错误", request);
             recordLoginFail("teacher", username);
-            throw new BusinessException("工号或密码错误！");
+            throw new BusinessException(ErrorCode.LOGIN_FAILED);
         }
 
         clearLoginFail("teacher", username);
@@ -126,7 +127,7 @@ public class AuthServiceImpl implements AuthService {
         if (!adminService.checkLogin(username, dto.getPassword())) {
             saveLoginLog("管理员-" + username, "登录失败：账号或密码错误", request);
             recordLoginFail("admin", username);
-            throw new BusinessException("管理员账号或密码错误！");
+            throw new BusinessException(ErrorCode.LOGIN_FAILED);
         }
 
         clearLoginFail("admin", username);
@@ -144,10 +145,10 @@ public class AuthServiceImpl implements AuthService {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "Not Found");
         }
         if (!testLoginEnabled) {
-            throw new BusinessException("【测试接口已禁用】请勿在生产环境尝试非法登录！");
+            throw new BusinessException(ErrorCode.FORBIDDEN.getCode(), "【测试接口已禁用】请勿在生产环境尝试非法登录！");
         }
         if (!"student".equals(role) && !"teacher".equals(role) && !"admin".equals(role)) {
-            throw new BusinessException("非法的角色类型！");
+            throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(), "非法的角色类型！");
         }
         saveLoginLog("测试登录-" + username, "使用免验证码通道", request);
         return new LoginUserVO(username, "测试用户-" + username, role);
@@ -155,7 +156,7 @@ public class AuthServiceImpl implements AuthService {
 
     private void verifyCaptcha(String captchaKey, String captchaCode) {
         if (!captchaService.verifyCaptcha(captchaKey, captchaCode)) {
-            throw new BusinessException("验证码错误或已过期，请重新输入！");
+            throw new BusinessException(ErrorCode.CAPTCHA_ERROR);
         }
     }
 
@@ -183,7 +184,7 @@ public class AuthServiceImpl implements AuthService {
     private void checkAccountLocked(String role, String username) {
         String countStr = stringRedisTemplate.opsForValue().get(LOGIN_FAIL_PREFIX + role + ":" + username);
         if (countStr != null && Integer.parseInt(countStr) >= MAX_FAIL_COUNT) {
-            throw new BusinessException("密码错误次数过多，账号已被锁定 10 分钟，请稍后再试！");
+            throw new BusinessException(ErrorCode.ACCOUNT_LOCKED);
         }
     }
 
@@ -192,7 +193,7 @@ public class AuthServiceImpl implements AuthService {
         Long count = stringRedisTemplate.opsForValue().increment(key);
         if (count != null) {
             if (count == 1) stringRedisTemplate.expire(key, LOCK_TTL);
-            if (count >= MAX_FAIL_COUNT) throw new BusinessException("密码错误次数过多，账号已被锁定 10 分钟，请稍后再试！");
+            if (count >= MAX_FAIL_COUNT) throw new BusinessException(ErrorCode.ACCOUNT_LOCKED);
         }
     }
 

@@ -3,6 +3,7 @@ package com.lab.labsystem.service.admin.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.dto.request.AdminClassCreateDTO;
@@ -110,7 +111,7 @@ public class OrgServiceImpl implements OrgService {
         long classes = adminClassMapper.selectCount(
                 new QueryWrapper<AdminClass>().eq("major_no", majorNo));
         if (classes > 0) {
-            throw new BusinessException("该专业下还有 " + classes + " 个行政班，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该专业下还有 " + classes + " 个行政班，请先处理后再删除！");
         }
         majorMapper.deleteById(majorNo);
     }
@@ -177,15 +178,15 @@ public class OrgServiceImpl implements OrgService {
     @Override
     public String addAdminClass(AdminClassCreateDTO dto) {
         if (dto.getMajorNo() == null || dto.getEnrollmentYear() == null || dto.getClassSeq() == null) {
-            throw new BusinessException("专业、入学年份、班级序号不能为空！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "专业、入学年份、班级序号不能为空！");
         }
         Major major = majorMapper.selectById(dto.getMajorNo());
-        if (major == null) throw new BusinessException("所选专业不存在！");
+        if (major == null) throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "所选专业不存在！");
         String deptNo = major.getDeptNo();
 
         String newClassNo = numberGenerator.generateAdminClassNo(dto.getEnrollmentYear(), deptNo, dto.getMajorNo(), dto.getClassSeq());
         if (adminClassMapper.selectById(newClassNo) != null) {
-            throw new BusinessException("该班级已存在，请检查年份、专业和序号！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该班级已存在，请检查年份、专业和序号！");
         }
 
         AdminClass adminClass = new AdminClass();
@@ -205,7 +206,7 @@ public class OrgServiceImpl implements OrgService {
         long students = studentMapper.selectCount(
                 new QueryWrapper<Student>().eq("admin_class_no", adminClassNo));
         if (students > 0) {
-            throw new BusinessException("该行政班下还有 " + students + " 名学生，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该行政班下还有 " + students + " 名学生，请先处理后再删除！");
         }
         adminClassMapper.deleteById(adminClassNo);
     }

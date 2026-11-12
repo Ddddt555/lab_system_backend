@@ -3,6 +3,7 @@ package com.lab.labsystem.service.student.impl;
 import com.alibaba.excel.EasyExcel;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.PasswordValidator;
 import com.lab.labsystem.common.QueryLimits;
@@ -205,16 +206,16 @@ public class StudentServiceImpl implements StudentService {
             try {
                 // 基础校验：姓名
                 if (dto.getName() == null || dto.getName().trim().isEmpty()) {
-                    throw new BusinessException("姓名不能为空");
+                    throw BusinessException.of(ErrorCode.BAD_REQUEST, "姓名不能为空");
                 }
                 // 基础校验：行政班
                 if (dto.getAdminClassNo() == null || dto.getAdminClassNo().trim().isEmpty()) {
-                    throw new BusinessException("行政班号不能为空");
+                    throw BusinessException.of(ErrorCode.BAD_REQUEST, "行政班号不能为空");
                 }
                 // 业务校验：直接比对内存中的 Set，不再查库
                 String classNo = dto.getAdminClassNo().trim();
                 if (!existingClassNos.contains(classNo)) {
-                    throw new BusinessException("行政班号 [" + classNo + "] 不存在");
+                    throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "行政班号 [" + classNo + "] 不存在");
                 }
 
                 Student student = new Student();
@@ -246,12 +247,12 @@ public class StudentServiceImpl implements StudentService {
     public String changePassword(String studentNo, String oldPwd, String newPwd) {
         String errorMsg = PasswordValidator.validate(newPwd);
         if (errorMsg != null) {
-            throw new BusinessException(errorMsg);
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, errorMsg);
         }
 
         Student student = studentMapper.selectById(studentNo);
         if (student == null || !passwordEncoder.matches(oldPwd, student.getPassword())) {
-            throw new BusinessException("原密码错误！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "原密码错误！");
         }
 
         student.setPassword(passwordEncoder.encode(newPwd));

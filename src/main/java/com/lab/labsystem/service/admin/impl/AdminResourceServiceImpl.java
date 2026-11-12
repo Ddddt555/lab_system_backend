@@ -3,6 +3,7 @@ package com.lab.labsystem.service.admin.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.dto.request.CourseCreateDTO;
@@ -89,11 +90,11 @@ public class AdminResourceServiceImpl implements AdminResourceService {
     public void deleteLab(String roomNo) {
         long sessions = sessionMapper.selectCount(new QueryWrapper<ExpSession>().eq("room_no", roomNo));
         if (sessions > 0) {
-            throw new BusinessException("该实验室下还有 " + sessions + " 个实验场次，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该实验室下还有 " + sessions + " 个实验场次，请先处理后再删除！");
         }
         long equipments = equipMapper.selectCount(new QueryWrapper<LabEquipment>().eq("room_no", roomNo));
         if (equipments > 0) {
-            throw new BusinessException("该实验室下还有 " + equipments + " 台设备，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该实验室下还有 " + equipments + " 台设备，请先处理后再删除！");
         }
         labRoomMapper.deleteById(roomNo);
     }
@@ -125,7 +126,7 @@ public class AdminResourceServiceImpl implements AdminResourceService {
     public void deleteCourse(String courseNo) {
         long classes = teachClassMapper.selectCount(new QueryWrapper<TeachClass>().eq("course_no", courseNo));
         if (classes > 0) {
-            throw new BusinessException("该课程已被 " + classes + " 个教学班使用，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该课程已被 " + classes + " 个教学班使用，请先处理后再删除！");
         }
         courseMapper.deleteById(courseNo);
     }
@@ -181,11 +182,11 @@ public class AdminResourceServiceImpl implements AdminResourceService {
     public void deleteSemester(String semesterName) {
         long classes = teachClassMapper.selectCount(new QueryWrapper<TeachClass>().eq("semester", semesterName));
         if (classes > 0) {
-            throw new BusinessException("该学期已被 " + classes + " 个教学班使用，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该学期已被 " + classes + " 个教学班使用，请先处理后再删除！");
         }
         long sessions = sessionMapper.selectCount(new QueryWrapper<ExpSession>().eq("semester", semesterName));
         if (sessions > 0) {
-            throw new BusinessException("该学期下还有 " + sessions + " 个实验场次，请先处理后再删除！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该学期下还有 " + sessions + " 个实验场次，请先处理后再删除！");
         }
         semesterMapper.deleteById(semesterName);
     }

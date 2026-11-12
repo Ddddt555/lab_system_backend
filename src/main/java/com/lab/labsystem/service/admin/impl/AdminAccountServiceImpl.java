@@ -1,6 +1,7 @@
 package com.lab.labsystem.service.admin.impl;
 
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.ExcelUtils;
 import com.lab.labsystem.dto.StudentImportDTO;
 import com.lab.labsystem.entity.Student;
@@ -47,19 +48,19 @@ public class AdminAccountServiceImpl implements AdminAccountService {
         if ("student".equals(role)) {
             Student student = studentMapper.selectById(account);
             if (student == null) {
-                throw new BusinessException("学生不存在！");
+                throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "学生不存在！");
             }
             student.setPassword(defaultHash);
             student.setMustChangePassword(1);
             student.setPwdUpdateTime(LocalDateTime.now());
             studentMapper.updateById(student);
-            // 【缓存一致性】重置后必须立即失效，否则最多 60 秒内仍被判定为"无需改密"
+            // 缓存一致性：重置后必须立即失效，否则最多 60 秒内仍被判定为"无需改密"
             mustChangePasswordCache.evict("student", account);
 
         } else if ("teacher".equals(role)) {
             Teacher teacher = teacherMapper.selectById(account);
             if (teacher == null) {
-                throw new BusinessException("教师不存在！");
+                throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "教师不存在！");
             }
             teacher.setPassword(defaultHash);
             teacher.setMustChangePassword(1);
@@ -68,7 +69,7 @@ public class AdminAccountServiceImpl implements AdminAccountService {
             mustChangePasswordCache.evict("teacher", account);
 
         } else {
-            throw new BusinessException("不支持的角色！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "不支持的角色！");
         }
 
         return "密码已重置为 " + DEFAULT_PASSWORD + "，该用户下次登录必须修改密码！";

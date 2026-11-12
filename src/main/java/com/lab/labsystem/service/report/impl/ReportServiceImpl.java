@@ -3,6 +3,7 @@ package com.lab.labsystem.service.report.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.FileTypeUtils;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.entity.AdminClass;
@@ -94,7 +95,7 @@ public class ReportServiceImpl implements ReportService {
     @Transactional(rollbackFor = Exception.class)
     public String upload(MultipartFile file, String projectNo, String studentNo) {
         if (file.isEmpty()) {
-            throw new BusinessException("上传的文件不能为空！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "上传的文件不能为空！");
         }
 
         String originalFilename = file.getOriginalFilename();
@@ -103,16 +104,16 @@ public class ReportServiceImpl implements ReportService {
             suffix = originalFilename.substring(originalFilename.lastIndexOf(".")).toLowerCase();
         }
         if (!ALLOWED_EXTENSIONS.contains(suffix)) {
-            throw new BusinessException("文件格式非法！只允许上传 PDF、Word、ZIP、RAR 格式。");
+            throw BusinessException.of(ErrorCode.FILE_INVALID, "文件格式非法！只允许上传 PDF、Word、ZIP、RAR 格式。");
         }
 
         if (!FileTypeUtils.isValidFile(file, suffix)) {
-            throw new BusinessException("文件内容与后缀不符，非法文件已被拦截！");
+            throw BusinessException.of(ErrorCode.FILE_INVALID, "文件内容与后缀不符，非法文件已被拦截！");
         }
 
         ExpProject project = projectMapper.selectById(projectNo);
         if (project == null) {
-            throw new BusinessException("实验项目不存在！");
+            throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "实验项目不存在！");
         }
 
         String newFileName = UUID.randomUUID().toString().replace("-", "") + suffix;
@@ -125,7 +126,7 @@ public class ReportServiceImpl implements ReportService {
         try {
             isLocked = lock.tryLock(3, -1, TimeUnit.SECONDS);
             if (!isLocked) {
-                throw new BusinessException("您有报告正在上传中，请勿频繁点击！");
+                throw BusinessException.of(ErrorCode.CONCURRENT_CONFLICT, "您有报告正在上传中，请勿频繁点击！");
             }
 
             minioService.upload(file, newFileName);
@@ -159,13 +160,13 @@ public class ReportServiceImpl implements ReportService {
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new BusinessException("系统繁忙，请稍后重试！");
+            throw BusinessException.of(ErrorCode.SYSTEM_ERROR, "系统繁忙，请稍后重试！");
         } catch (DuplicateKeyException e) {
             log.warn("版本号冲突，并发插入被唯一键拦截: {}", newFileName);
             if (minioUploadSuccess) {
                 minioService.remove(newFileName);
             }
-            throw new BusinessException("网络开小差了，请稍后重试！");
+            throw BusinessException.of(ErrorCode.CONCURRENT_CONFLICT, "网络开小差了，请稍后重试！");
         } catch (BusinessException e) {
             // 预期内的业务拒绝（例如没抢到锁），原样抛出：
             // 不能落到下面的通用分支，否则会被包装成"数据库保存失败"并误删刚上传的文件
@@ -175,7 +176,7 @@ public class ReportServiceImpl implements ReportService {
             if (minioUploadSuccess) {
                 minioService.remove(newFileName);
             }
-            throw new RuntimeException("数据库保存失败，文件已清理，请重试！", e);
+            throw BusinessException.of(ErrorCode.SYSTEM_ERROR, "数据库保存失败，文件已清理，请重试！");
         } finally {
             if (isLocked && lock.isHeldByCurrentThread()) {
                 lock.unlock();
@@ -198,22 +199,22 @@ public class ReportServiceImpl implements ReportService {
     @Transactional(rollbackFor = Exception.class)
     public void grade(String reportNo, Double score, String comment, String currentWorkNo) {
         if (score == null || score < 0 || score > 100) {
-            throw new BusinessException("分数必须在 0-100 之间！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "分数必须在 0-100 之间！");
         }
 
         ExpReport report = reportMapper.selectById(reportNo);
         if (report == null) {
-            throw new BusinessException("找不到该报告！");
+            throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "找不到该报告！");
         }
 
         ExpProject project = projectMapper.selectById(report.getProjectNo());
         if (project == null) {
-            throw new BusinessException("报告所属项目不存在！");
+            throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "报告所属项目不存在！");
         }
 
         TeachClass tc = teachClassMapper.selectById(project.getClassNo());
         if (tc == null || !currentWorkNo.equals(tc.getWorkNo())) {
-            throw new BusinessException("非法操作：您无权批阅该报告！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权批阅该报告！");
         }
 
         report.setScore(score);
@@ -236,12 +237,12 @@ public class ReportServiceImpl implements ReportService {
     public List<ReportVO> listByProject(String projectNo, String currentWorkNo) {
         ExpProject project = projectMapper.selectById(projectNo);
         if (project == null) {
-            throw new BusinessException("实验项目不存在！");
+            throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "实验项目不存在！");
         }
 
         TeachClass tc = teachClassMapper.selectById(project.getClassNo());
         if (tc == null || !currentWorkNo.equals(tc.getWorkNo())) {
-            throw new BusinessException("非法操作：您无权查看该项目报告！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权查看该项目报告！");
         }
 
         QueryWrapper<ExpReport> qw = new QueryWrapper<>();

@@ -1,6 +1,7 @@
 package com.lab.labsystem.service.teacher.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.dto.request.TeacherCreateDTO;
@@ -135,12 +136,12 @@ public class TeacherServiceImpl implements TeacherService {
     public String changePassword(String workNo, String oldPwd, String newPwd) {
         String errorMsg = PasswordValidator.validate(newPwd);
         if (errorMsg != null) {
-            throw new BusinessException(errorMsg);
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, errorMsg);
         }
 
         Teacher teacher = teacherMapper.selectById(workNo);
         if (teacher == null || !passwordEncoder.matches(oldPwd, teacher.getPassword())) {
-            throw new BusinessException("原密码错误！");
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "原密码错误！");
         }
 
         teacher.setPassword(passwordEncoder.encode(newPwd));
