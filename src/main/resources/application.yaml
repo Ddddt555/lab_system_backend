@@ -12,7 +12,7 @@ spring:
   application:
     name: labsystem
   
-  # 保持默认 dev
+  # 运行环境配置，默认 dev
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
@@ -22,7 +22,7 @@ spring:
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD}
 
-  # 🛑【核心新增：Flyway 数据库版本控制】
+  # Flyway 数据库版本控制
   flyway:
     enabled: true
     baseline-on-migrate: true
@@ -30,11 +30,11 @@ spring:
     validate-on-migrate: false
     locations: classpath:db/migration
 
+  # Redis 缓存配置
   data:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
-      # 🛑【核心加固】从环境变量读取 Redis 密码
       password: ${REDIS_PASSWORD:}
       database: 0
       timeout: 3000ms
@@ -45,24 +45,27 @@ spring:
           min-idle: 2
           max-wait: 2000ms
 
+  # 文件上传大小限制
   servlet:
     multipart:
       max-file-size: 50MB
       max-request-size: 100MB
 
+# JWT 认证配置（双 Token 机制）
 jwt:
   secret: ${JWT_SECRET}
-  # 🛑【核心修复】改为双 Token 机制的时间配置
   access-expire-minutes: 30
   refresh-expire-days: 7
 
+# 跨域配置
 cors:
   allowed-origins: ${CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
 
-# 本地路径配置（目前文件全走 MinIO，这里的配置作为历史遗留或本地备份兜底）
+# 本地文件存储目录
 file:
   upload-dir: ${UPLOAD_DIR:./uploads/}
 
+# MyBatis-Plus 配置
 mybatis-plus:
   configuration:
     log-impl: ${MYBATIS_LOG_IMPL:org.apache.ibatis.logging.stdout.StdOutImpl}
@@ -72,70 +75,70 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
+# 接口文档配置
 knife4j:
   enable: true
   production: ${KNIFE4J_PRODUCTION:false}
 
+# MinIO 对象存储配置
 minio:
   endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
   access-key: ${MINIO_ACCESS_KEY:minioadmin}
   secret-key: ${MINIO_SECRET_KEY}
   bucket-name: lab-files
 
+# 自定义应用配置
 app:
   security:
     test-login-enabled: ${TEST_LOGIN_ENABLED:false}
-
-  # ============================================================
-  # ⚠️ 核心开关：安全规范与 cpolar 兼容的物理隔离 ⚠️
-  # ============================================================
+  # 是否开启 cpolar 内网穿透兼容模式
   cpolar-compatible: ${CPOLAR_COMPATIBLE:false}
-
-  # 系统操作日志保留天数：每天 03:30 由 SysLogCleanTask 清理更早的记录
+  # 系统操作日志保留天数
   log:
     retention-days: ${LOG_RETENTION_DAYS:180}
 
 # ============================================================
-# ⚠️ 监控与日志配置
+# 监控与日志配置
 # ============================================================
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus # 🛑【核心修改】暴露 prometheus 指标
-  # 🛑【核心新增】给所有监控指标打上应用名标签
+        include: health,info,prometheus
   metrics:
     tags:
       application: labsystem
-    # 【告警支撑】为 HTTP 请求耗时输出直方图（_bucket），
-    # 否则 Prometheus 里的 P95 延迟告警（histogram_quantile）没有数据可用。
+    # 监控指标分布配置
     distribution:
+      # 开启 HTTP 请求与自定义模块耗时的直方图统计，用于计算 P95/P99 延迟
       percentiles-histogram:
         http.server.requests: true
+        api.module.duration: true
+      # 配置延迟分桶（SLO），确保百分位数计算更精确
       slo:
         http.server.requests: 100ms,300ms,500ms,1s,3s
+        api.module.duration: 50ms,100ms,300ms,500ms,1s,3s
   endpoint:
     health:
       show-details: always
       probes:
-        enabled: true # 🛑【核心新增】开启 liveness 和 readiness 探针
+        enabled: true
   health:
     livenessstate:
-      enabled: true # 允许 /actuator/health/liveness
+      enabled: true
     readinessstate:
-      enabled: true # 允许 /actuator/health/readiness
+      enabled: true
 
 logging:
   file:
-    name: ${LOG_PATH:./logs}/labsystem.log # 日志存放路径
+    name: ${LOG_PATH:./logs}/labsystem.log
   logback:
     rollingpolicy:
-      max-history: 7 # 只保留 7 天日志，自动清理旧的
-      max-file-size: 10MB # 单个文件超 10MB 自动切分
-  # 🛑【核心新增】全链路追踪日志格式：包含 Trace ID
+      max-history: 7
+      max-file-size: 10MB
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [TraceId: %X{traceId:-N/A}] - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [TraceId: %X{traceId:-N/A}] - %msg%n"
   level:
     root: info
-    com.lab.labsystem: debug # 你的包名设为 debug
+    com.lab.labsystem: debug
