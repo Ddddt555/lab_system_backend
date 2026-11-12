@@ -111,9 +111,9 @@ public class TokenServiceImpl implements TokenService {
                 throw BusinessException.of(ErrorCode.TOKEN_INVALID, "无效的刷新令牌类型！");
             }
             
-            // 严格校验设备指纹，如果 Token 里绑定了设备，必须与请求的设备一致
-            if (tokenDeviceId != null && !tokenDeviceId.equals(deviceId)) {
-                securityLog.warn("【设备异常】刷新令牌中的设备指纹不匹配，用户: {}, 请求设备: {}, Token设备: {}", userNo, deviceId, tokenDeviceId);
+            // 强制校验：Token 中必须包含设备指纹，且必须与请求中的一致
+            if (tokenDeviceId == null || !tokenDeviceId.equals(deviceId)) {
+                securityLog.warn("【设备异常】刷新令牌中的设备指纹不匹配或缺失，用户: {}, 请求设备: {}, Token设备: {}", userNo, deviceId, tokenDeviceId);
                 throw BusinessException.of(ErrorCode.TOKEN_INVALID, "设备环境异常，请重新登录！");
             }
 
@@ -133,23 +133,31 @@ public class TokenServiceImpl implements TokenService {
                     String.valueOf(REFRESH_TOKEN_TTL.getSeconds())
             );
 
-            // 如果返回 0，说明旧 Token 不匹配（可能已失效，也可能是并发下被别的线程刷掉了）
+            // 如果返回 0，说明旧 Token 不匹配（可能已失效，也可能是并发下被别的请求刷新了）
             if (result == null || result != 1L) {
-                // 安全防御：直接清除该设备 Token
-                stringRedisTemplate.delete(redisKey);
+                // 不直接删除，先检查 Redis 中当前的 Token 状态
+                String currentTokenInRedis = stringRedisTemplate.opsForValue().get(redisKey);
                 
-                // 写入数据库审计
-                SysLog dbLog = new SysLog();
-                dbLog.setOperator("用户-" + userNo);
-                dbLog.setAction("安全拦截：设备 " + deviceId + " 检测到无效刷新令牌，已强制该设备下线");
-                dbLog.setCreateTime(LocalDateTime.now());
-                dbLog.setSuccess(0);
-                logMapper.insert(dbLog);
+                if (currentTokenInRedis == null) {
+                    // Redis 已空，确实是过期或被注销
+                    SysLog dbLog = new SysLog();
+                    dbLog.setOperator("用户-" + userNo);
+                    dbLog.setAction("安全拦截：设备 " + deviceId + " 检测到无效刷新令牌，已强制该设备下线");
+                    dbLog.setCreateTime(LocalDateTime.now());
+                    dbLog.setSuccess(0);
+                    logMapper.insert(dbLog);
 
-                // 写入独立安全日志
-                securityLog.warn("【重放攻击拦截】用户: {}, 设备: {}, 使用了已失效或被替换的 RefreshToken，已强制下线", userNo, deviceId);
-
-                throw BusinessException.of(ErrorCode.FORBIDDEN, "安全警告：检测到异常刷新操作，已被强制下线，请重新登录！");
+                    securityLog.warn("【重放攻击拦截】用户: {}, 设备: {}, 使用了已失效的 RefreshToken，已强制下线", userNo, deviceId);
+                    throw BusinessException.of(ErrorCode.FORBIDDEN, "安全警告：检测到异常刷新操作，已被强制下线，请重新登录！");
+                }
+                
+                // Redis 中还有值，说明是高并发请求引起的，直接返回当前的 Token，避免前端掉线
+                securityLog.info("【并发刷新】用户: {}, 设备: {}, 检测到并发刷新，直接返回最新令牌", userNo, deviceId);
+                
+                Map<String, Object> data = new HashMap<>();
+                data.put("token", newAccessToken); // 签发新的 Access Token
+                data.put("refreshToken", currentTokenInRedis); // 返回 Redis 中已有的最新 Refresh Token
+                return data;
             }
 
             // 原子替换成功，更新设备活跃时间

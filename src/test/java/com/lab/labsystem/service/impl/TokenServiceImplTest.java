@@ -7,6 +7,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Map;
@@ -65,8 +67,8 @@ class TokenServiceImplTest {
         assertNotNull(tokens.get("refreshToken"));
         
         // 验证是否写入了 Redis
-        org.mockito.Mockito.verify(ops).set(org.mockito.ArgumentMatchers.eq("refresh_token:S001:" + DEVICE_ID), anyString(), any());
-        org.mockito.Mockito.verify(zSetOps).add(org.mockito.ArgumentMatchers.eq("user:devices:S001"), org.mockito.ArgumentMatchers.eq(DEVICE_ID), any(Double.class));
+        verify(ops).set(ArgumentMatchers.eq("refresh_token:S001:" + DEVICE_ID), anyString(), any());
+        verify(zSetOps).add(ArgumentMatchers.eq("user:devices:S001"), ArgumentMatchers.eq(DEVICE_ID), any(Double.class));
     }
 
     @Test
@@ -81,7 +83,7 @@ class TokenServiceImplTest {
     }
 
     @Test
-    @DisplayName("刷新令牌：与 Redis 不一致时拒绝并判定为重放")
+    @DisplayName("刷新令牌：Redis 中确实为空（失效），报错并强制下线，不执行删除")
     void refreshRejectsMismatch() {
         String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
         
@@ -94,11 +96,44 @@ class TokenServiceImplTest {
                 anyString()
         )).thenReturn(0L);
 
+        // 模拟 Redis 中确实没有值（过期/注销）
+        when(ops.get("refresh_token:S001:" + DEVICE_ID)).thenReturn(null);
+
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.refreshToken(refreshToken, DEVICE_ID));
 
         assertEquals("安全警告：检测到异常刷新操作，已被强制下线，请重新登录！", e.getMessage());
-        org.mockito.Mockito.verify(redis).delete("refresh_token:S001:" + DEVICE_ID);
+        
+        // 验证不再执行无脑 delete 操作
+        verify(redis, never()).delete(anyString());
+    }
+
+    @Test
+    @DisplayName("刷新令牌：并发冲突时返回 Redis 中的最新 Token，不执行删除")
+    void refreshConflictReturnsLatestToken() {
+        String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
+        
+        // Mock Lua 脚本返回 0 (代表用旧 Token 比对失败)
+        when(redis.execute(
+                ArgumentMatchers.<DefaultRedisScript<Long>>any(), 
+                anyList(), 
+                anyString(), 
+                anyString(), 
+                anyString()
+        )).thenReturn(0L);
+
+        // 模拟并发场景：其他线程已经抢先刷新，Redis 里存的是新的 Token
+        String latestTokenInRedis = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
+        when(ops.get("refresh_token:S001:" + DEVICE_ID)).thenReturn(latestTokenInRedis);
+
+        // 断言：不抛异常，直接返回 Redis 里的最新 Token，保证用户不掉线
+        Map<String, Object> data = service.refreshToken(refreshToken, DEVICE_ID);
+
+        assertNotNull(data.get("token"));
+        assertEquals(latestTokenInRedis, data.get("refreshToken"));
+        
+        // 验证绝不执行 delete，避免误杀有效的 Token
+        verify(redis, never()).delete(anyString());
     }
 
     @Test
@@ -121,7 +156,7 @@ class TokenServiceImplTest {
         assertNotNull(data.get("refreshToken"));
         
         // 验证是否更新了活跃设备时间
-        org.mockito.Mockito.verify(zSetOps).add(org.mockito.ArgumentMatchers.eq("user:devices:S001"), org.mockito.ArgumentMatchers.eq(DEVICE_ID), any(Double.class));
+        verify(zSetOps).add(ArgumentMatchers.eq("user:devices:S001"), ArgumentMatchers.eq(DEVICE_ID), any(Double.class));
     }
 
     @Test
