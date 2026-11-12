@@ -14,12 +14,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
-import org.springframework.util.DigestUtils;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -41,15 +39,57 @@ public class TokenServiceImpl implements TokenService {
     
     private static final Duration REFRESH_TOKEN_TTL = Duration.ofDays(7);
     private static final Duration WS_TICKET_TTL = Duration.ofSeconds(30);
-    private static final Duration IDEMPOTENT_TTL = Duration.ofSeconds(60);
+    private static final Duration IDEMPOTENT_TTL = Duration.ofMinutes(5);
 
+    /**
+     * 刷新 Token 原子脚本。
+     * KEYS[1]: 主 Refresh Token Key
+     * KEYS[2]: 幂等缓存 Hash Key
+     * ARGV[1]: 旧 Refresh Token
+     * ARGV[2]: 旧 Refresh Token 的 JTI
+     * ARGV[3]: 新 Access Token
+     * ARGV[4]: 新 Refresh Token
+     * ARGV[5]: 新 Refresh Token 的 JTI
+     * ARGV[6]: 主 Token 过期时间 (秒)
+     * ARGV[7]: 幂等缓存过期时间 (秒)
+     * 
+     * 返回码:
+     * SUCCESS: 轮换成功
+     * CACHED: 命中幂等缓存且有效
+     * FAIL: 匹配失败或会话失效
+     */
     private static final String REFRESH_TOKEN_LUA_SCRIPT =
+            "local cached = redis.call('HGET', KEYS[2], ARGV[2]) " +
+            "if cached then " +
+            "   local currentToken = redis.call('GET', KEYS[1]) " +
+            "   if currentToken then " +
+            "       local parts = {} " +
+            "       for match in string.gmatch(cached, '([^|]+)') do table.insert(parts, match) end " +
+            "       if parts[3] == currentToken then " +
+            "           return 'CACHED|' .. cached " +
+            "       end " +
+            "   end " +
+            "   return 'FAIL' " +
+            "end " +
             "if redis.call('GET', KEYS[1]) == ARGV[1] then " +
-            "   redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]) " +
-            "   return 1 " +
+            "   redis.call('SET', KEYS[1], ARGV[4], 'EX', ARGV[6]) " +
+            "   local result = ARGV[3] .. '|' .. ARGV[4] .. '|' .. ARGV[5] " +
+            "   redis.call('HSET', KEYS[2], ARGV[2], result) " +
+            "   redis.call('EXPIRE', KEYS[2], ARGV[7]) " +
+            "   return 'SUCCESS|' .. result " +
             "else " +
-            "   return 0 " +
+            "   return 'FAIL' " +
             "end";
+
+    /**
+     * 登出撤销原子脚本。
+     * KEYS[1]: 主 Refresh Token Key
+     * KEYS[2]: 幂等缓存 Hash Key
+     */
+    private static final String REVOKE_TOKEN_LUA_SCRIPT =
+            "redis.call('DEL', KEYS[1]) " +
+            "redis.call('DEL', KEYS[2]) " +
+            "return 1";
 
     private final StringRedisTemplate stringRedisTemplate;
     private final SysLogMapper logMapper;
@@ -67,9 +107,11 @@ public class TokenServiceImpl implements TokenService {
 
         String accessToken = JwtUtil.generateAccessToken(userNo, role, deviceId);
         String refreshToken = JwtUtil.generateRefreshToken(userNo, role, deviceId);
-        String redisKey = REFRESH_TOKEN_PREFIX + userNo + ":" + deviceId;
         
+        String hashTag = "{" + userNo + ":" + deviceId + "}";
+        String redisKey = REFRESH_TOKEN_PREFIX + hashTag;
         String userDevicesKey = USER_DEVICES_PREFIX + userNo;
+        
         long now = System.currentTimeMillis();
         stringRedisTemplate.opsForZSet().add(userDevicesKey, deviceId, now);
         stringRedisTemplate.expire(userDevicesKey, REFRESH_TOKEN_TTL);
@@ -80,7 +122,12 @@ public class TokenServiceImpl implements TokenService {
             if (oldestDevices != null && !oldestDevices.isEmpty()) {
                 String oldestDeviceId = oldestDevices.iterator().next();
                 stringRedisTemplate.opsForZSet().remove(userDevicesKey, oldestDeviceId);
-                stringRedisTemplate.delete(REFRESH_TOKEN_PREFIX + userNo + ":" + oldestDeviceId);
+                
+                String oldestHashTag = "{" + userNo + ":" + oldestDeviceId + "}";
+                stringRedisTemplate.delete(Arrays.asList(
+                        REFRESH_TOKEN_PREFIX + oldestHashTag,
+                        IDEMPOTENT_PREFIX + oldestHashTag
+                ));
                 securityLog.warn("【设备超限】用户 {} 的在线设备数超过 {} 台，已自动踢出最旧设备: {}", userNo, MAX_DEVICES, oldestDeviceId);
             }
         }
@@ -98,7 +145,6 @@ public class TokenServiceImpl implements TokenService {
         if (refreshToken == null || refreshToken.isEmpty()) {
             throw BusinessException.of(ErrorCode.BAD_REQUEST, "缺少刷新令牌！");
         }
-        
         if (deviceId == null || deviceId.trim().isEmpty()) {
             throw BusinessException.of(ErrorCode.BAD_REQUEST, "缺少设备标识，请求非法！");
         }
@@ -109,44 +155,38 @@ public class TokenServiceImpl implements TokenService {
             String role = (String) claims.get("role");
             String type = (String) claims.get("type");
             String tokenDeviceId = (String) claims.get("deviceId");
+            String oldJti = claims.getId();
 
             if (!"refresh".equals(type)) {
                 throw BusinessException.of(ErrorCode.TOKEN_INVALID, "无效的刷新令牌类型！");
             }
-            
             if (tokenDeviceId == null || !tokenDeviceId.equals(deviceId)) {
                 securityLog.warn("【设备异常】刷新令牌中的设备指纹不匹配或缺失，用户: {}, 请求设备: {}, Token设备: {}", userNo, deviceId, tokenDeviceId);
                 throw BusinessException.of(ErrorCode.TOKEN_INVALID, "设备环境异常，请重新登录！");
             }
 
-            String idempotentKey = IDEMPOTENT_PREFIX + DigestUtils.md5DigestAsHex(refreshToken.getBytes(StandardCharsets.UTF_8));
-            String cachedResult = stringRedisTemplate.opsForValue().get(idempotentKey);
-            if (cachedResult != null) {
-                String[] parts = cachedResult.split("\\|\\|\\|");
-                if (parts.length == 2) {
-                    securityLog.info("【并发刷新兼容】用户: {}, 设备: {}, 命中幂等缓存，直接返回结果", userNo, deviceId);
-                    Map<String, Object> data = new HashMap<>();
-                    data.put("token", parts[0]);
-                    data.put("refreshToken", parts[1]);
-                    return data;
-                }
-            }
-
-            String redisKey = REFRESH_TOKEN_PREFIX + userNo + ":" + deviceId;
+            String hashTag = "{" + userNo + ":" + deviceId + "}";
+            String redisKey = REFRESH_TOKEN_PREFIX + hashTag;
+            String idempotentKey = IDEMPOTENT_PREFIX + hashTag;
             
             String newAccessToken = JwtUtil.generateAccessToken(userNo, role, deviceId);
             String newRefreshToken = JwtUtil.generateRefreshToken(userNo, role, deviceId);
+            String newJti = JwtUtil.parseToken(newRefreshToken).getId();
 
-            DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(REFRESH_TOKEN_LUA_SCRIPT, Long.class);
-            Long result = stringRedisTemplate.execute(
+            DefaultRedisScript<String> redisScript = new DefaultRedisScript<>(REFRESH_TOKEN_LUA_SCRIPT, String.class);
+            String result = stringRedisTemplate.execute(
                     redisScript,
-                    Collections.singletonList(redisKey),
+                    Arrays.asList(redisKey, idempotentKey),
                     refreshToken,
+                    oldJti,
+                    newAccessToken,
                     newRefreshToken,
-                    String.valueOf(REFRESH_TOKEN_TTL.getSeconds())
+                    newJti,
+                    String.valueOf(REFRESH_TOKEN_TTL.getSeconds()),
+                    String.valueOf(IDEMPOTENT_TTL.getSeconds())
             );
 
-            if (result == null || result != 1L) {
+            if (result == null || result.startsWith("FAIL")) {
                 SysLog dbLog = new SysLog();
                 dbLog.setOperator("用户-" + userNo);
                 dbLog.setAction("安全拦截：设备 " + deviceId + " 尝试重放旧刷新令牌，已强制下线");
@@ -158,19 +198,15 @@ public class TokenServiceImpl implements TokenService {
                 throw BusinessException.of(ErrorCode.FORBIDDEN, "安全警告：检测到异常刷新操作，已被强制下线，请重新登录！");
             }
 
-            stringRedisTemplate.opsForValue().set(
-                    idempotentKey, 
-                    newAccessToken + "|||" + newRefreshToken, 
-                    IDEMPOTENT_TTL
-            );
-
             stringRedisTemplate.opsForZSet().add(USER_DEVICES_PREFIX + userNo, deviceId, System.currentTimeMillis());
             stringRedisTemplate.expire(USER_DEVICES_PREFIX + userNo, REFRESH_TOKEN_TTL);
 
+            String[] parts = result.split("\\|");
             Map<String, Object> data = new HashMap<>();
-            data.put("token", newAccessToken);
-            data.put("refreshToken", newRefreshToken); 
+            data.put("token", parts[1]);
+            data.put("refreshToken", parts[2]);
             return data;
+
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -193,8 +229,15 @@ public class TokenServiceImpl implements TokenService {
                 if (remainingSeconds > 0 && jti != null) {
                     stringRedisTemplate.opsForValue().set(BLACKLIST_PREFIX + jti, "1", Duration.ofSeconds(remainingSeconds));
                 }
+                
                 if (userNo != null && deviceId != null) {
-                    stringRedisTemplate.delete(REFRESH_TOKEN_PREFIX + userNo + ":" + deviceId);
+                    String hashTag = "{" + userNo + ":" + deviceId + "}";
+                    String redisKey = REFRESH_TOKEN_PREFIX + hashTag;
+                    String idempotentKey = IDEMPOTENT_PREFIX + hashTag;
+                    
+                    DefaultRedisScript<Long> revokeScript = new DefaultRedisScript<>(REVOKE_TOKEN_LUA_SCRIPT, Long.class);
+                    stringRedisTemplate.execute(revokeScript, Arrays.asList(redisKey, idempotentKey));
+                    
                     stringRedisTemplate.opsForZSet().remove(USER_DEVICES_PREFIX + userNo, deviceId);
                 }
             } catch (Exception ignored) {}

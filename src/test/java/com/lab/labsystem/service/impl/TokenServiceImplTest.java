@@ -8,7 +8,6 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -67,78 +66,69 @@ class TokenServiceImplTest {
         assertNotNull(tokens.get("token"));
         assertNotNull(tokens.get("refreshToken"));
 
-        verify(ops).set(eq("refresh_token:S001:" + DEVICE_ID), anyString(), any());
+        verify(ops).set(eq("refresh_token:{S001:test-device}"), anyString(), any());
         verify(zSetOps).add(eq("user:devices:S001"), eq(DEVICE_ID), any(Double.class));
     }
 
     @Test
-    @DisplayName("刷新令牌：命中并发幂等缓存时，直接返回缓存中的新 Token")
-    void refreshConflictReturnsCachedToken() {
+    @DisplayName("刷新令牌：轮换成功或命中有效缓存，返回新 Token")
+    void refreshSuccessOrCached() {
         String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
 
-        // 构造幂等缓存中保存的 Token 字符串
-        String cachedData = "cached-new-access|||cached-new-refresh";
-        when(ops.get(anyString())).thenReturn(cachedData);
-
-        Map<String, Object> data = service.refreshToken(refreshToken, DEVICE_ID);
-
-        assertEquals("cached-new-access", data.get("token"));
-        assertEquals("cached-new-refresh", data.get("refreshToken"));
-
-        // 验证命中缓存后，跳过了后续的 Lua 脚本比对
-        verify(redis, never()).execute(any(), anyList(), anyString(), anyString(), anyString());
-    }
-
-    @Test
-    @DisplayName("刷新令牌：Lua 失败且未命中缓存，重放攻击直接拒绝")
-    void refreshRejectsMismatch() {
-        String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
-
-        // 模拟缓存未命中
-        when(ops.get(anyString())).thenReturn(null);
-
-        // 模拟 Redis 中的 RefreshToken 与请求不一致
+        // 模拟 Lua 脚本返回 SUCCESS 及拼接结果
+        String luaResult = "SUCCESS|new-access-token|new-refresh-token|new-jti";
         when(redis.execute(
-                ArgumentMatchers.<DefaultRedisScript<Long>>any(),
+                ArgumentMatchers.<DefaultRedisScript<String>>any(),
                 anyList(),
                 anyString(),
                 anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
                 anyString()
-        )).thenReturn(0L);
+        )).thenReturn(luaResult);
+
+        Map<String, Object> data = service.refreshToken(refreshToken, DEVICE_ID);
+
+        assertEquals("new-access-token", data.get("token"));
+        assertEquals("new-refresh-token", data.get("refreshToken"));
+        verify(zSetOps).add(eq("user:devices:S001"), eq(DEVICE_ID), any(Double.class));
+    }
+
+    @Test
+    @DisplayName("刷新令牌：Lua 脚本返回 FAIL 时，判定为重放攻击并拦截")
+    void refreshRejectsMismatch() {
+        String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
+
+        when(redis.execute(
+                ArgumentMatchers.<DefaultRedisScript<String>>any(),
+                anyList(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        )).thenReturn("FAIL");
 
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.refreshToken(refreshToken, DEVICE_ID));
 
         assertEquals("安全警告：检测到异常刷新操作，已被强制下线，请重新登录！", e.getMessage());
-        // 验证异常拦截，不执行缓存写入
-        verify(redis, never()).delete(anyString());
     }
 
     @Test
-    @DisplayName("刷新令牌：成功时返回新的双 Token，并写入幂等缓存")
-    void refreshSuccess() {
-        String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
+    @DisplayName("登出：应调用原子脚本清理主 Token 与幂等缓存，并移除设备")
+    void revokeTokensClearsIdempotentCache() {
+        String accessToken = JwtUtil.generateAccessToken("S001", "student", DEVICE_ID);
+        String tokenWithBearer = "Bearer " + accessToken;
 
-        // 模拟缓存未命中
-        when(ops.get(anyString())).thenReturn(null);
+        service.revokeTokens(tokenWithBearer);
 
-        // 模拟 Lua 脚本原子替换成功
-        when(redis.execute(
-                ArgumentMatchers.<DefaultRedisScript<Long>>any(),
-                anyList(),
-                anyString(),
-                anyString(),
-                anyString()
-        )).thenReturn(1L);
-
-        Map<String, Object> data = service.refreshToken(refreshToken, DEVICE_ID);
-
-        assertNotNull(data.get("token"));
-        assertNotNull(data.get("refreshToken"));
-
-        // 验证成功替换后，新 Token 对被写入了幂等缓存
-        verify(ops).set(anyString(), anyString(), any(java.time.Duration.class));
-        verify(zSetOps).add(eq("user:devices:S001"), eq(DEVICE_ID), any(Double.class));
+        verify(redis).execute(any(DefaultRedisScript.class), anyList());
+        verify(zSetOps).remove("user:devices:S001", DEVICE_ID);
     }
 
     @Test
