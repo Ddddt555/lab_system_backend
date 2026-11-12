@@ -6,6 +6,7 @@ import java.util.Map;
 
 import com.lab.labsystem.dto.request.ProjectCreateDTO;
 import com.lab.labsystem.dto.request.SessionCreateDTO;
+import com.lab.labsystem.dto.request.UpdatePasswordDTO;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -180,11 +181,9 @@ public class TeacherController {
     @Operation(summary = "教师修改密码")
     @LogRecord("修改密码")
     @PostMapping("/update-password")
-    public Result<String> updatePassword(HttpServletRequest request,
-                                         @RequestParam String oldPwd,
-                                         @RequestParam String newPwd) {
+    public Result<String> updatePassword(HttpServletRequest request, @Valid @RequestBody UpdatePasswordDTO dto) {
         String workNo = (String) request.getAttribute("currentUserNo");
-        return Result.success(teacherService.changePassword(workNo, oldPwd, newPwd));
+        return Result.success(teacherService.changePassword(workNo, dto.getOldPassword(), dto.getNewPassword()));
     }
 
     // ================= 6. 数据统计 =================

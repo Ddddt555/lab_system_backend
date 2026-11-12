@@ -3,6 +3,7 @@ package com.lab.labsystem.controller;
 import java.io.IOException;
 import java.util.List;
 
+import com.lab.labsystem.dto.request.UpdatePasswordDTO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -219,8 +220,8 @@ public class AdminController {
     }
 
     @PostMapping("/update-password")
-    public Result<String> updatePassword(@RequestParam String oldPassword, @RequestParam String newPassword) {
-        if (adminService.updatePassword(oldPassword, newPassword)) {
+    public Result<String> updatePassword(@Valid @RequestBody UpdatePasswordDTO dto) {
+        if (adminService.updatePassword(dto.getOldPassword(), dto.getNewPassword())) {
             return Result.success("密码修改成功，请重新登录！");
         }
         return Result.error("原密码错误！");

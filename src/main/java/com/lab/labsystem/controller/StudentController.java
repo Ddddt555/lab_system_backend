@@ -3,6 +3,7 @@ package com.lab.labsystem.controller;
 import com.lab.labsystem.annotation.RateLimit;
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.Result;
+import com.lab.labsystem.dto.request.UpdatePasswordDTO;
 import com.lab.labsystem.service.attendance.AttendanceService;
 import com.lab.labsystem.service.student.CourseSelectionService;
 import com.lab.labsystem.service.student.SessionQueryService;
@@ -12,9 +13,11 @@ import com.lab.labsystem.service.student.StudentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -111,11 +114,9 @@ public class StudentController {
 
     @Operation(summary = "学生修改密码", description = "校验原密码后更新为新密码，修改成功后建议重新登录")
     @PostMapping("/update-password")
-    public Result<String> updatePassword(HttpServletRequest request,
-                                         @RequestParam String oldPwd,
-                                         @RequestParam String newPwd) {
+    public Result<String> updatePassword(HttpServletRequest request, @Valid @RequestBody UpdatePasswordDTO dto) {
         String studentNo = (String) request.getAttribute("currentUserNo");
-        return Result.success(studentService.changePassword(studentNo, oldPwd, newPwd));
+        return Result.success(studentService.changePassword(studentNo, dto.getOldPassword(), dto.getNewPassword()));
     }
 
     // ================= 6. 考勤签到 =================
