@@ -1,6 +1,8 @@
 package com.lab.labsystem.service.impl;
 
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.dto.request.TeacherCreateDTO;
+import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.entity.Teacher;
 import com.lab.labsystem.mapper.TeacherMapper;
 import com.lab.labsystem.service.MustChangePasswordCache;
@@ -85,5 +87,39 @@ class TeacherServiceImplPasswordTest {
         assertEquals(0, teacher.getMustChangePassword());
         verify(teacherMapper).updateById(teacher);
         verify(cache).evict("teacher", "T001");
+    }
+    
+    @Test
+    @DisplayName("新增教师：忽略前端传的密码，强制使用后端初始密码")
+    void addTeacherIgnoresFrontendPassword() {
+        // 1. 准备依赖 Mock
+        NumberGenerator numberGenerator = mock(NumberGenerator.class);
+        when(numberGenerator.generateWorkNo()).thenReturn("T2026001");
+        ReflectionTestUtils.setField(service, "numberGenerator", numberGenerator);
+        
+        when(passwordEncoder.encode("123456")).thenReturn("encoded-default-pwd");
+        when(teacherMapper.selectRealById("T2026001")).thenReturn(null);
+
+        // 2. 模拟前端恶意传入 DTO（如果 DTO 里有 password 字段的话）
+        // 注意：如果 DTO 里根本没有 password 字段，这里根本连 set 都调不了，这才是最安全的。
+        TeacherCreateDTO dto = new TeacherCreateDTO();
+        dto.setName("王老师");
+        dto.setDeptNo("D001");
+        // dto.setPassword("hacked-pwd"); // DTO 中不存在此字段，编译器会直接报错
+
+        // 3. 调用
+        String result = service.addTeacher(dto);
+
+        // 4. 验证
+        assertEquals("教师添加成功！工号为：T2026001", result);
+        
+        // 抓取插入的 Teacher 对象，验证密码和工号
+        org.mockito.ArgumentCaptor<Teacher> captor = org.mockito.ArgumentCaptor.forClass(Teacher.class);
+        verify(teacherMapper).insert(captor.capture());
+        Teacher savedTeacher = captor.getValue();
+        
+        assertEquals("T2026001", savedTeacher.getWorkNo());
+        assertEquals("encoded-default-pwd", savedTeacher.getPassword()); // 密码一定是后端生成的
+        assertEquals(1, savedTeacher.getMustChangePassword()); // 必须强制改密
     }
 }

@@ -1,11 +1,20 @@
 package com.lab.labsystem.service;
-import com.lab.labsystem.entity.*;
+
+import com.lab.labsystem.dto.request.AdminClassCreateDTO;
+import com.lab.labsystem.dto.request.MajorCreateDTO;
+
 public interface OrgService {
     Object getMajorList(Integer page, Integer size);
-    String addMajor(Major major);
+    
+    // 修改为接收 DTO
+    String addMajor(MajorCreateDTO dto);
+    
     void deleteMajor(String majorNo);
 
     Object getAdminClassList(Integer page, Integer size);
-    String addAdminClass(AdminClass adminClass);
+    
+    // 修改为接收 DTO
+    String addAdminClass(AdminClassCreateDTO dto);
+    
     void deleteAdminClass(String adminClassNo);
 }

@@ -3,6 +3,7 @@ package com.lab.labsystem.service.impl;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.NumberGenerator;
+import com.lab.labsystem.dto.request.LabCreateDTO;
 import com.lab.labsystem.entity.LabRoom;
 import com.lab.labsystem.entity.SysLog;
 import com.lab.labsystem.mapper.ExpCourseMapper;
@@ -123,13 +124,21 @@ class AdminResourceServiceImplTest {
     @DisplayName("新增实验室：生成编号、回填并落库")
     void addLab() {
         when(numberGenerator.generateRoomNo()).thenReturn("R001");
-        LabRoom room = new LabRoom();
+        
+        LabCreateDTO dto = new LabCreateDTO();
+        dto.setRoomName("测试实验室");
 
-        String msg = service.addLab(room);
+        String msg = service.addLab(dto);
 
-        assertEquals("R001", room.getRoomNo());
-        verify(labRoomMapper).insert(room);
         assertEquals("实验室添加成功！实验室号为：R001", msg);
+
+        // 捕获传给 Mapper 的实体，验证主键是否被正确注入
+        ArgumentCaptor<LabRoom> captor = ArgumentCaptor.forClass(LabRoom.class);
+        verify(labRoomMapper).insert(captor.capture());
+        
+        LabRoom savedRoom = captor.getValue();
+        assertEquals("R001", savedRoom.getRoomNo());
+        assertEquals("测试实验室", savedRoom.getRoomName());
     }
 
     @Test

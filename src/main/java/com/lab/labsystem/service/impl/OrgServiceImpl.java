@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
+import com.lab.labsystem.dto.request.AdminClassCreateDTO;
+import com.lab.labsystem.dto.request.MajorCreateDTO;
 import com.lab.labsystem.entity.AdminClass;
 import com.lab.labsystem.entity.Department;
 import com.lab.labsystem.entity.Major;
@@ -15,6 +17,7 @@ import com.lab.labsystem.mapper.MajorMapper;
 import com.lab.labsystem.mapper.StudentMapper;
 import com.lab.labsystem.service.OrgService;
 import com.lab.labsystem.common.NumberGenerator;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -88,8 +91,15 @@ public class OrgServiceImpl implements OrgService {
     }
 
     @Override
-    public String addMajor(Major major) {
+    public String addMajor(MajorCreateDTO dto) {
+        Major major = new Major();
+        // 1. 安全拷贝
+        BeanUtils.copyProperties(dto, major);
+        
+        // 2. 接管敏感字段
         major.setMajorNo(numberGenerator.generateMajorNo());
+        major.setDeleted(0);
+        
         majorMapper.insert(major);
         return "专业添加成功！专业号为：" + major.getMajorNo();
     }
@@ -165,19 +175,27 @@ public class OrgServiceImpl implements OrgService {
     }
 
     @Override
-    public String addAdminClass(AdminClass adminClass) {
-        if (adminClass.getMajorNo() == null || adminClass.getEnrollmentYear() == null || adminClass.getClassSeq() == null) {
+    public String addAdminClass(AdminClassCreateDTO dto) {
+        if (dto.getMajorNo() == null || dto.getEnrollmentYear() == null || dto.getClassSeq() == null) {
             throw new BusinessException("专业、入学年份、班级序号不能为空！");
         }
-        Major major = majorMapper.selectById(adminClass.getMajorNo());
+        Major major = majorMapper.selectById(dto.getMajorNo());
         if (major == null) throw new BusinessException("所选专业不存在！");
         String deptNo = major.getDeptNo();
 
-        String newClassNo = numberGenerator.generateAdminClassNo(adminClass.getEnrollmentYear(), deptNo, adminClass.getMajorNo(), adminClass.getClassSeq());
+        String newClassNo = numberGenerator.generateAdminClassNo(dto.getEnrollmentYear(), deptNo, dto.getMajorNo(), dto.getClassSeq());
         if (adminClassMapper.selectById(newClassNo) != null) {
             throw new BusinessException("该班级已存在，请检查年份、专业和序号！");
         }
+
+        AdminClass adminClass = new AdminClass();
+        // 安全拷贝
+        BeanUtils.copyProperties(dto, adminClass);
+        
+        // 接管敏感字段
         adminClass.setAdminClassNo(newClassNo);
+        adminClass.setDeleted(0);
+
         adminClassMapper.insert(adminClass);
         return "行政班添加成功！班级号为：" + newClassNo;
     }

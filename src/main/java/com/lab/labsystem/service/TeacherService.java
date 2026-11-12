@@ -1,8 +1,14 @@
 package com.lab.labsystem.service;
-import com.lab.labsystem.entity.Teacher;
+
+import com.lab.labsystem.dto.request.TeacherCreateDTO;
+
 public interface TeacherService {
+    
     Object getTeacherList(Integer page, Integer size);
-    String addTeacher(Teacher teacher);
+    
+    // 修改为接收 DTO
+    String addTeacher(TeacherCreateDTO dto);
+    
     void deleteTeacher(String workNo);
 
     // 教师自助修改密码

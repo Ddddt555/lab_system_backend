@@ -2,6 +2,8 @@ package com.lab.labsystem.service.impl;
 
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.NumberGenerator;
+import com.lab.labsystem.dto.request.DepartmentCreateDTO;
+import com.lab.labsystem.dto.request.TitleCreateDTO;
 import com.lab.labsystem.entity.Department;
 import com.lab.labsystem.entity.TitleDict;
 import com.lab.labsystem.mapper.DepartmentMapper;
@@ -11,6 +13,7 @@ import com.lab.labsystem.mapper.TitleDictMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.Collections;
 
@@ -58,26 +61,40 @@ class AdminDictServiceImplTest {
     @DisplayName("新增院系：生成编号、回填并落库")
     void addDepartment() {
         when(numberGenerator.generateDeptNo()).thenReturn("D001");
-        Department dept = new Department();
+        DepartmentCreateDTO dto = new DepartmentCreateDTO();
+        dto.setDeptName("测试学院");
 
-        String msg = service.addDepartment(dept);
+        String msg = service.addDepartment(dto);
 
-        assertEquals("D001", dept.getDeptNo());
-        verify(departmentMapper).insert(dept);
         assertEquals("院系添加成功！院系号为：D001", msg);
+
+        // 捕获传给 Mapper 的实体，验证主键是否被正确注入
+        ArgumentCaptor<Department> captor = ArgumentCaptor.forClass(Department.class);
+        verify(departmentMapper).insert(captor.capture());
+        
+        Department savedDept = captor.getValue();
+        assertEquals("D001", savedDept.getDeptNo());
+        assertEquals("测试学院", savedDept.getDeptName());
     }
 
     @Test
     @DisplayName("新增职称：生成编号、回填并落库")
     void addTitle() {
         when(numberGenerator.generateTitleNo()).thenReturn("TT001");
-        TitleDict title = new TitleDict();
+        TitleCreateDTO dto = new TitleCreateDTO();
+        dto.setTitleName("教授");
 
-        String msg = service.addTitle(title);
+        String msg = service.addTitle(dto);
 
-        assertEquals("TT001", title.getTitleNo());
-        verify(titleDictMapper).insert(title);
         assertEquals("职称添加成功！职称号为：TT001", msg);
+
+        // 捕获传给 Mapper 的实体
+        ArgumentCaptor<TitleDict> captor = ArgumentCaptor.forClass(TitleDict.class);
+        verify(titleDictMapper).insert(captor.capture());
+        
+        TitleDict savedTitle = captor.getValue();
+        assertEquals("TT001", savedTitle.getTitleNo());
+        assertEquals("教授", savedTitle.getTitleName());
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.PasswordValidator;
 import com.lab.labsystem.common.QueryLimits;
+import com.lab.labsystem.dto.request.StudentCreateDTO;
 import com.lab.labsystem.service.MustChangePasswordCache;
 import com.lab.labsystem.entity.AdminClass;
 import com.lab.labsystem.entity.Department;
@@ -17,6 +18,7 @@ import com.lab.labsystem.mapper.MajorMapper;
 import com.lab.labsystem.mapper.StudentMapper;
 import com.lab.labsystem.service.StudentService;
 import com.lab.labsystem.common.NumberGenerator;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -136,14 +138,19 @@ public class StudentServiceImpl implements StudentService {
     }
 
     @Override
-    public String addStudent(Student student) {
-        student.setStudentNo(numberGenerator.generateStudentNo());
-        if (student.getPassword() == null || student.getPassword().isEmpty()) {
-            student.setPassword("123456");
-        }
-        student.setPassword(passwordEncoder.encode(student.getPassword()));
+    public String addStudent(StudentCreateDTO dto) {
+        Student student = new Student();
+        
+        // 1. 安全拷贝：只拷贝 dto 中的 name/adminClassNo
+        BeanUtils.copyProperties(dto, student);
 
-        // 利用自定义 SQL 穿透逻辑删除，检查该学号是否已存在（哪怕是已删除状态）
+        // 2. 后端接管敏感字段
+        student.setStudentNo(numberGenerator.generateStudentNo());
+        student.setPassword(passwordEncoder.encode("123456")); // 强制默认密码
+        student.setMustChangePassword(1); // 强制首次修改密码
+        student.setDeleted(0); // 默认未删除
+
+        // 3. 利用自定义 SQL 穿透逻辑删除，检查该学号是否已存在（哪怕是已删除状态）
         Student existStudent = studentMapper.selectRealById(student.getStudentNo());
         
         if (existStudent != null) {
@@ -216,6 +223,7 @@ public class StudentServiceImpl implements StudentService {
                 student.setAdminClassNo(classNo);
                 student.setPassword(passwordEncoder.encode("123456"));
                 student.setMustChangePassword(1); // 强制首次登录改密
+                student.setDeleted(0);
                 studentMapper.insert(student);
                 successCount++;
 

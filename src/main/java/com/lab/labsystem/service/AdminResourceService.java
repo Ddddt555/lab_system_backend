@@ -1,40 +1,40 @@
 package com.lab.labsystem.service;
 
-import com.lab.labsystem.entity.ExpCourse;
+import com.lab.labsystem.dto.request.CourseCreateDTO;
+import com.lab.labsystem.dto.request.EquipmentCreateDTO;
+import com.lab.labsystem.dto.request.LabCreateDTO;
+import com.lab.labsystem.dto.request.SemesterCreateDTO;
 import com.lab.labsystem.entity.LabEquipment;
-import com.lab.labsystem.entity.LabRoom;
-import com.lab.labsystem.entity.SysSemester;
 
 import java.util.List;
 
-/**
- * 后台资源维护：实验室、课程、设备、学期，以及系统操作日志查询。
- *
- * <p>从 {@code AdminController} 下沉出来的极简 CRUD + 日志分页。
- */
 public interface AdminResourceService {
 
     Object listLabs(Integer page, Integer size);
 
-    String addLab(LabRoom labRoom);
+    // 修改为接收 DTO
+    String addLab(LabCreateDTO dto);
 
     void deleteLab(String roomNo);
 
     Object listCourses(Integer page, Integer size);
 
-    String addCourse(ExpCourse course);
+    // 修改为接收 DTO
+    String addCourse(CourseCreateDTO dto);
 
     void deleteCourse(String courseNo);
 
     List<LabEquipment> listEquipments();
 
-    String addEquipment(LabEquipment equip);
+    // 修改为接收 DTO
+    String addEquipment(EquipmentCreateDTO dto);
 
     void deleteEquipment(String equipNo);
 
     Object listSemesters(Integer page, Integer size);
 
-    String addSemester(SysSemester semester);
+    // 修改为接收 DTO
+    String addSemester(SemesterCreateDTO dto);
 
     void deleteSemester(String semesterName);
 

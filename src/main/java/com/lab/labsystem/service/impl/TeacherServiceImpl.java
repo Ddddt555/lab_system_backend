@@ -3,6 +3,7 @@ package com.lab.labsystem.service.impl;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
+import com.lab.labsystem.dto.request.TeacherCreateDTO;
 import com.lab.labsystem.entity.Department;
 import com.lab.labsystem.entity.Teacher;
 import com.lab.labsystem.entity.TitleDict;
@@ -14,6 +15,7 @@ import com.lab.labsystem.common.PasswordValidator;
 import com.lab.labsystem.service.MustChangePasswordCache;
 import com.lab.labsystem.service.TeacherService;
 import com.lab.labsystem.common.NumberGenerator;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -96,14 +98,19 @@ public class TeacherServiceImpl implements TeacherService {
     }
 
     @Override
-    public String addTeacher(Teacher teacher) {
-        teacher.setWorkNo(numberGenerator.generateWorkNo());
-        if (teacher.getPassword() == null || teacher.getPassword().isEmpty()) {
-            teacher.setPassword("123456");
-        }
-        teacher.setPassword(passwordEncoder.encode(teacher.getPassword()));
+    public String addTeacher(TeacherCreateDTO dto) {
+        Teacher teacher = new Teacher();
+        
+        // 1. 安全拷贝：只把 dto 里的 name/deptNo/titleNo 搬过来
+        BeanUtils.copyProperties(dto, teacher);
 
-        // 检查工号是否被逻辑删除占用了
+        // 2. 后端强行接管敏感字段
+        teacher.setWorkNo(numberGenerator.generateWorkNo());
+        teacher.setPassword(passwordEncoder.encode("123456")); // 强制初始密码为 123456
+        teacher.setMustChangePassword(1); // 强制首次登录修改密码
+        teacher.setDeleted(0); // 默认未删除
+
+        // 3. 检查工号是否被逻辑删除占用了
         Teacher existTeacher = teacherMapper.selectRealById(teacher.getWorkNo());
         
         if (existTeacher != null) {
@@ -114,7 +121,7 @@ public class TeacherServiceImpl implements TeacherService {
             return "工号 " + teacher.getWorkNo() + " 曾被删除，已为您恢复并更新！";
         }
 
-        // 如果不存在，正常插入
+        // 4. 如果不存在，正常插入
         teacherMapper.insert(teacher);
         return "教师添加成功！工号为：" + teacher.getWorkNo();
     }

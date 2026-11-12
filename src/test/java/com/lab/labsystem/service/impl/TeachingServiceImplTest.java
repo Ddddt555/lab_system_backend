@@ -1,12 +1,16 @@
 package com.lab.labsystem.service.impl;
 
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.NumberGenerator;
+import com.lab.labsystem.dto.request.TeachClassCreateDTO;
+import com.lab.labsystem.entity.TeachClass;
 import com.lab.labsystem.mapper.ExpProjectMapper;
 import com.lab.labsystem.mapper.StudentTeachClassMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -27,6 +31,7 @@ class TeachingServiceImplTest {
     private TeachClassMapper teachClassMapper;
     private ExpProjectMapper projectMapper;
     private StudentTeachClassMapper studentTeachClassMapper;
+    private NumberGenerator numberGenerator;
     private TeachingServiceImpl service;
 
     @BeforeEach
@@ -34,11 +39,35 @@ class TeachingServiceImplTest {
         teachClassMapper = mock(TeachClassMapper.class);
         projectMapper = mock(ExpProjectMapper.class);
         studentTeachClassMapper = mock(StudentTeachClassMapper.class);
+        numberGenerator = mock(NumberGenerator.class);
 
         service = new TeachingServiceImpl();
         ReflectionTestUtils.setField(service, "teachClassMapper", teachClassMapper);
         ReflectionTestUtils.setField(service, "projectMapper", projectMapper);
         ReflectionTestUtils.setField(service, "studentTeachClassMapper", studentTeachClassMapper);
+        ReflectionTestUtils.setField(service, "numberGenerator", numberGenerator);
+    }
+
+    @Test
+    @DisplayName("新增教学班：生成班级号并落库")
+    void addTeachClass() {
+        when(numberGenerator.generateClassNo("C001")).thenReturn("TC001");
+        TeachClassCreateDTO dto = new TeachClassCreateDTO();
+        dto.setCourseNo("C001");
+        dto.setWorkNo("T001");
+        dto.setSemester("2025-2026-1");
+
+        String msg = service.addTeachClass(dto);
+
+        assertEquals("教学班创建成功！班级号为：TC001", msg);
+
+        ArgumentCaptor<TeachClass> captor = ArgumentCaptor.forClass(TeachClass.class);
+        verify(teachClassMapper).insert(captor.capture());
+        
+        TeachClass savedClass = captor.getValue();
+        assertEquals("TC001", savedClass.getClassNo()); // 后端生成的主键
+        assertEquals("C001", savedClass.getCourseNo());
+        assertEquals("T001", savedClass.getWorkNo());
     }
 
     @Test

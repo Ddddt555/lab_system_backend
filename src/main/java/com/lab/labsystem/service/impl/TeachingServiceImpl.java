@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
+import com.lab.labsystem.dto.request.TeachClassCreateDTO;
 import com.lab.labsystem.entity.ExpCourse;
 import com.lab.labsystem.entity.ExpProject;
 import com.lab.labsystem.entity.StudentTeachClass;
@@ -17,6 +18,7 @@ import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.mapper.TeacherMapper;
 import com.lab.labsystem.service.TeachingService;
 import com.lab.labsystem.common.NumberGenerator;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -97,8 +99,16 @@ public class TeachingServiceImpl implements TeachingService {
     }
 
     @Override
-    public String addTeachClass(TeachClass teachClass) {
-        teachClass.setClassNo(numberGenerator.generateClassNo(teachClass.getCourseNo()));
+    public String addTeachClass(TeachClassCreateDTO dto) {
+        TeachClass teachClass = new TeachClass();
+        
+        // 1. 安全拷贝
+        BeanUtils.copyProperties(dto, teachClass);
+        
+        // 2. 后端接管敏感字段
+        teachClass.setClassNo(numberGenerator.generateClassNo(dto.getCourseNo()));
+        teachClass.setDeleted(0);
+        
         teachClassMapper.insert(teachClass);
         return "教学班创建成功！班级号为：" + teachClass.getClassNo();
     }

@@ -1,12 +1,18 @@
 package com.lab.labsystem.service.impl;
 
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.NumberGenerator;
+import com.lab.labsystem.dto.request.AdminClassCreateDTO;
+import com.lab.labsystem.dto.request.MajorCreateDTO;
+import com.lab.labsystem.entity.AdminClass;
+import com.lab.labsystem.entity.Major;
 import com.lab.labsystem.mapper.AdminClassMapper;
 import com.lab.labsystem.mapper.MajorMapper;
 import com.lab.labsystem.mapper.StudentMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -27,6 +33,7 @@ class OrgServiceImplTest {
     private MajorMapper majorMapper;
     private AdminClassMapper adminClassMapper;
     private StudentMapper studentMapper;
+    private NumberGenerator numberGenerator;
     private OrgServiceImpl service;
 
     @BeforeEach
@@ -34,11 +41,32 @@ class OrgServiceImplTest {
         majorMapper = mock(MajorMapper.class);
         adminClassMapper = mock(AdminClassMapper.class);
         studentMapper = mock(StudentMapper.class);
+        numberGenerator = mock(NumberGenerator.class);
 
         service = new OrgServiceImpl();
         ReflectionTestUtils.setField(service, "majorMapper", majorMapper);
         ReflectionTestUtils.setField(service, "adminClassMapper", adminClassMapper);
         ReflectionTestUtils.setField(service, "studentMapper", studentMapper);
+        ReflectionTestUtils.setField(service, "numberGenerator", numberGenerator);
+    }
+
+    @Test
+    @DisplayName("新增专业：生成主键并落库")
+    void addMajor() {
+        when(numberGenerator.generateMajorNo()).thenReturn("M001");
+        MajorCreateDTO dto = new MajorCreateDTO();
+        dto.setMajorName("计算机科学");
+        dto.setDeptNo("D001");
+
+        String msg = service.addMajor(dto);
+
+        assertEquals("专业添加成功！专业号为：M001", msg);
+
+        ArgumentCaptor<Major> captor = ArgumentCaptor.forClass(Major.class);
+        verify(majorMapper).insert(captor.capture());
+        Major saved = captor.getValue();
+        assertEquals("M001", saved.getMajorNo());
+        assertEquals("计算机科学", saved.getMajorName());
     }
 
     @Test

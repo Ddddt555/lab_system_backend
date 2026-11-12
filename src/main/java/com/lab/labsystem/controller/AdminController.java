@@ -10,8 +10,8 @@ import org.springframework.web.multipart.MultipartFile;
 import com.lab.labsystem.annotation.LogRecord;
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.Result;
+import com.lab.labsystem.dto.request.*;
 import com.lab.labsystem.entity.*;
-import com.lab.labsystem.mapper.*;
 import com.lab.labsystem.service.*;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -52,8 +52,8 @@ public class AdminController {
     @Operation(summary = "新增学生")
     @LogRecord("新增学生")
     @PostMapping("/student/add")
-    public Result<String> addStudent(@Valid @RequestBody Student student) {
-        return Result.success(studentService.addStudent(student));
+    public Result<String> addStudent(@Valid @RequestBody StudentCreateDTO dto) {
+        return Result.success(studentService.addStudent(dto));
     }
 
     @Operation(summary = "删除学生")
@@ -74,8 +74,8 @@ public class AdminController {
     @Operation(summary = "新增教师")
     @LogRecord("新增教师")
     @PostMapping("/teacher/add")
-    public Result<String> addTeacher(@Valid @RequestBody Teacher teacher) {
-        return Result.success(teacherService.addTeacher(teacher));
+    public Result<String> addTeacher(@Valid @RequestBody TeacherCreateDTO dto) {
+        return Result.success(teacherService.addTeacher(dto));
     }
 
     @Operation(summary = "删除教师")
@@ -96,8 +96,8 @@ public class AdminController {
     @Operation(summary = "新增专业")
     @LogRecord("新增专业")
     @PostMapping("/major/add")
-    public Result<String> addMajor(@Valid @RequestBody Major major) {
-        return Result.success(orgService.addMajor(major));
+    public Result<String> addMajor(@Valid @RequestBody MajorCreateDTO dto) {
+        return Result.success(orgService.addMajor(dto));
     }
 
     @Operation(summary = "删除专业")
@@ -117,8 +117,8 @@ public class AdminController {
     @Operation(summary = "新增行政班")
     @LogRecord("新增行政班")
     @PostMapping("/admin-class/add")
-    public Result<String> addAdminClass(@Valid @RequestBody AdminClass adminClass) { // 🛑 加上 @Valid
-        return Result.success(orgService.addAdminClass(adminClass));
+    public Result<String> addAdminClass(@Valid @RequestBody AdminClassCreateDTO dto) {
+        return Result.success(orgService.addAdminClass(dto));
     }
 
     @Operation(summary = "删除行政班")
@@ -139,8 +139,8 @@ public class AdminController {
     @Operation(summary = "创建教学班")
     @LogRecord("创建教学班")
     @PostMapping("/teach-class/add")
-    public Result<String> addTeachClass(@Valid @RequestBody TeachClass teachClass) { // 🛑 加上 @Valid
-        return Result.success(teachingService.addTeachClass(teachClass));
+    public Result<String> addTeachClass(@Valid @RequestBody TeachClassCreateDTO dto) {
+        return Result.success(teachingService.addTeachClass(dto));
     }
 
     @Operation(summary = "删除教学班")
@@ -151,7 +151,7 @@ public class AdminController {
         return Result.success("教学班已删除！");
     }
 
-    // ========== 以下为极简 CRUD，直接保留在 Controller ==========
+    // ========== 以下为极简 CRUD ==========
     
     @GetMapping("/departments")
     public Result<List<Department>> getDepartments() {
@@ -160,8 +160,8 @@ public class AdminController {
 
     @LogRecord("新增院系")
     @PostMapping("/department/add")
-    public Result<String> addDepartment(@Valid @RequestBody Department dept) {
-        return Result.success(adminDictService.addDepartment(dept));
+    public Result<String> addDepartment(@Valid @RequestBody DepartmentCreateDTO dto) {
+        return Result.success(adminDictService.addDepartment(dto));
     }
 
     @LogRecord("删除院系")
@@ -178,8 +178,8 @@ public class AdminController {
 
     @LogRecord("新增职称")
     @PostMapping("/title/add")
-    public Result<String> addTitle(@Valid @RequestBody TitleDict title) {
-        return Result.success(adminDictService.addTitle(title));
+    public Result<String> addTitle(@Valid @RequestBody TitleCreateDTO dto) {
+        return Result.success(adminDictService.addTitle(dto));
     }
 
     @LogRecord("删除职称")
@@ -210,8 +210,8 @@ public class AdminController {
 
     @LogRecord("新增实验室")
     @PostMapping("/lab/add")
-    public Result<String> addLab(@Valid @RequestBody LabRoom labRoom) {
-        return Result.success(adminResourceService.addLab(labRoom));
+    public Result<String> addLab(@Valid @RequestBody LabCreateDTO dto) {
+        return Result.success(adminResourceService.addLab(dto));
     }
 
     @LogRecord("删除实验室")
@@ -228,8 +228,8 @@ public class AdminController {
 
     @LogRecord("新增课程")
     @PostMapping("/course/add")
-    public Result<String> addCourse(@Valid @RequestBody ExpCourse course) {
-        return Result.success(adminResourceService.addCourse(course));
+    public Result<String> addCourse(@Valid @RequestBody CourseCreateDTO dto) {
+        return Result.success(adminResourceService.addCourse(dto));
     }
 
     @LogRecord("删除课程")
@@ -246,8 +246,8 @@ public class AdminController {
 
     @LogRecord("新增设备")
     @PostMapping("/equipment/add")
-    public Result<String> addEquipment(@Valid @RequestBody LabEquipment equip) {
-        return Result.success(adminResourceService.addEquipment(equip));
+    public Result<String> addEquipment(@Valid @RequestBody EquipmentCreateDTO dto) {
+        return Result.success(adminResourceService.addEquipment(dto));
     }
 
     @LogRecord("删除设备")
@@ -264,8 +264,8 @@ public class AdminController {
 
     @LogRecord("新增学期")
     @PostMapping("/semester/add")
-    public Result<String> addSemester(@Valid @RequestBody SysSemester semester) {
-        return Result.success(adminResourceService.addSemester(semester));
+    public Result<String> addSemester(@Valid @RequestBody SemesterCreateDTO dto) {
+        return Result.success(adminResourceService.addSemester(dto));
     }
 
     @LogRecord("删除学期")
