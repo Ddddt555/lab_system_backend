@@ -2,6 +2,7 @@ package com.lab.labsystem.service.impl;
 
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.NumberGenerator;
+import com.lab.labsystem.dto.request.SessionCreateDTO;
 import com.lab.labsystem.entity.ExpProject;
 import com.lab.labsystem.entity.ExpSession;
 import com.lab.labsystem.entity.LabRoom;
@@ -17,10 +18,10 @@ import com.lab.labsystem.mapper.TeachClassMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -68,16 +69,16 @@ class TeacherSessionServiceImplTest {
                 numberGenerator);
     }
 
-    private static ExpSession request(String projectNo, String roomNo, int capacity) {
-        ExpSession s = new ExpSession();
-        s.setProjectNo(projectNo);
-        s.setRoomNo(roomNo);
-        s.setCapacity(capacity);
-        s.setSemester("2025-2026-1");
-        s.setWeekNum(3);
-        s.setDayOfWeek(2);
-        s.setPeriod("3-4节");
-        return s;
+    private static SessionCreateDTO request(String projectNo, String roomNo, int capacity) {
+        SessionCreateDTO dto = new SessionCreateDTO();
+        dto.setProjectNo(projectNo);
+        dto.setRoomNo(roomNo);
+        dto.setCapacity(capacity);
+        dto.setSemester("2025-2026-1");
+        dto.setWeekNum(3);
+        dto.setDayOfWeek(2);
+        dto.setPeriod("3-4节");
+        return dto;
     }
 
     private static ExpProject project(String classNo) {
@@ -225,16 +226,21 @@ class TeacherSessionServiceImplTest {
         semester.setStartDate(LocalDate.of(2025, 9, 1));
         when(semesterMapper.selectById("2025-2026-1")).thenReturn(semester);
 
-        ExpSession req = request("P001", "R001", 30);
+        SessionCreateDTO req = request("P001", "R001", 30);
         String msg = service.addSession(req, "T001");
 
         assertEquals("场次安排成功！场次号为：SE2025001", msg);
-        assertEquals("T001", req.getWorkNo());
-        assertEquals("SE2025001", req.getSessionNo());
-        assertEquals(30, req.getRemainingSeats());
+
+        // 捕获传给 Mapper 的实体，验证由后端接管生成的字段
+        ArgumentCaptor<ExpSession> captor = ArgumentCaptor.forClass(ExpSession.class);
+        verify(sessionMapper).insert(captor.capture());
+        
+        ExpSession saved = captor.getValue();
+        assertEquals("T001", saved.getWorkNo());
+        assertEquals("SE2025001", saved.getSessionNo());
+        assertEquals(30, saved.getRemainingSeats());
         // 第 3 周 周二 3-4 节 → 2025-09-01 + 2 周 + 1 天 = 09-16，10:00
-        assertEquals(LocalDateTime.of(2025, 9, 16, 10, 0), req.getSessionTime());
-        verify(sessionMapper).insert(req);
+        assertEquals(LocalDateTime.of(2025, 9, 16, 10, 0), saved.getSessionTime());
     }
 
     @Test

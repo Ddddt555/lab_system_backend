@@ -6,6 +6,7 @@ import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
+import com.lab.labsystem.dto.request.SessionCreateDTO;
 import com.lab.labsystem.entity.ExpProject;
 import com.lab.labsystem.entity.ExpSession;
 import com.lab.labsystem.entity.LabRoom;
@@ -67,9 +68,16 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
     }
 
     @Override
-    public String addSession(ExpSession session, String workNo) {
+    public String addSession(SessionCreateDTO dto, String workNo) {
+        // 1. 安全映射：只拷贝 dto 中的业务字段
+        ExpSession session = new ExpSession();
+        BeanUtils.copyProperties(dto, session);
+        
+        // 2. 后端接管敏感字段
         session.setWorkNo(workNo);
+        session.setDeleted(0);
 
+        // 3. 校验项目归属
         ExpProject project = projectMapper.selectById(session.getProjectNo());
         if (project == null) {
             throw new BusinessException("实验项目不存在！");
@@ -79,6 +87,7 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
             throw new BusinessException("非法操作：您无权安排其他老师的实验项目！");
         }
 
+        // 4. 校验实验室容量
         LabRoom room = labRoomMapper.selectById(session.getRoomNo());
         if (room == null) {
             throw new BusinessException("实验室不存在！");
@@ -87,6 +96,7 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
             throw new BusinessException("排课容量不能超过实验室容量！");
         }
 
+        // 5. 三重冲突校验
         QueryWrapper<ExpSession> conflictQw = new QueryWrapper<ExpSession>()
                 .eq("semester", session.getSemester())
                 .eq("week_num", session.getWeekNum())
@@ -111,6 +121,7 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
             }
         }
 
+        // 6. 生成场次号、计算绝对时间、初始剩余机位
         session.setSessionNo(numberGenerator.generateSessionNo());
         session.setSessionTime(calculateAbsoluteTime(
                 session.getSemester(), session.getWeekNum(),

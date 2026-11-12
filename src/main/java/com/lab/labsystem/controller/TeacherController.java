@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
+import com.lab.labsystem.dto.request.ProjectCreateDTO;
+import com.lab.labsystem.dto.request.SessionCreateDTO;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,8 +20,6 @@ import org.springframework.web.multipart.MultipartFile;
 import com.lab.labsystem.annotation.LogRecord;
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.Result;
-import com.lab.labsystem.entity.ExpProject;
-import com.lab.labsystem.entity.ExpSession;
 import com.lab.labsystem.entity.LabRoom;
 import com.lab.labsystem.entity.SysSemester;
 import com.lab.labsystem.service.AttendanceService;
@@ -81,9 +82,9 @@ public class TeacherController {
     @Operation(summary = "发布实验项目")
     @LogRecord("发布实验项目")
     @PostMapping("/project/add")
-    public Result<String> addProject(@RequestBody ExpProject project, HttpServletRequest request) {
+    public Result<String> addProject(@Valid @RequestBody ProjectCreateDTO dto, HttpServletRequest request) {
         String currentWorkNo = (String) request.getAttribute("currentUserNo");
-        return Result.success(teacherProjectService.addProject(project, currentWorkNo));
+        return Result.success(teacherProjectService.addProject(dto, currentWorkNo));
     }
 
     @Operation(summary = "上传实验指导书")
@@ -108,9 +109,9 @@ public class TeacherController {
     @Operation(summary = "安排实验场次", description = "包含教师时间冲突、实验室占用、教学班冲突等多重校验")
     @LogRecord("安排实验场次")
     @PostMapping("/session/add")
-    public Result<String> addSession(@RequestBody ExpSession session, HttpServletRequest request) {
+    public Result<String> addSession(@Valid @RequestBody SessionCreateDTO dto, HttpServletRequest request) {
         String currentWorkNo = (String) request.getAttribute("currentUserNo");
-        return Result.success(teacherSessionService.addSession(session, currentWorkNo));
+        return Result.success(teacherSessionService.addSession(dto, currentWorkNo));
     }
 
     @Operation(summary = "获取我负责的实验场次列表")

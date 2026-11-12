@@ -7,6 +7,7 @@ import com.lab.labsystem.common.FileTypeUtils;
 import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.common.PageResult;
 import com.lab.labsystem.common.QueryLimits;
+import com.lab.labsystem.dto.request.ProjectCreateDTO;
 import com.lab.labsystem.entity.ExpProject;
 import com.lab.labsystem.entity.ExpReport;
 import com.lab.labsystem.entity.ExpSession;
@@ -18,6 +19,7 @@ import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.service.MinioService;
 import com.lab.labsystem.service.TeacherProjectService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -80,17 +82,24 @@ public class TeacherProjectServiceImpl implements TeacherProjectService {
     }
 
     @Override
-    public String addProject(ExpProject project, String workNo) {
-        if (project.getClassNo() == null || project.getClassNo().isEmpty()) {
+    public String addProject(ProjectCreateDTO dto, String workNo) {
+        if (dto.getClassNo() == null || dto.getClassNo().isEmpty()) {
             throw new BusinessException("请选择所属教学班！");
         }
 
-        TeachClass tc = teachClassMapper.selectById(project.getClassNo());
+        TeachClass tc = teachClassMapper.selectById(dto.getClassNo());
         if (tc == null || !workNo.equals(tc.getWorkNo())) {
             throw new BusinessException("非法操作：您无权在该教学班下发布项目！");
         }
 
+        ExpProject project = new ExpProject();
+        // 1. 安全拷贝
+        BeanUtils.copyProperties(dto, project);
+        
+        // 2. 后端接管敏感字段
         project.setProjectNo(numberGenerator.generateProjectNo());
+        project.setDeleted(0);
+
         projectMapper.insert(project);
         return "项目发布成功！项目号为：" + project.getProjectNo();
     }
@@ -128,7 +137,7 @@ public class TeacherProjectServiceImpl implements TeacherProjectService {
         try {
             minioService.upload(file, newFileName);
         } catch (Exception e) {
-            log.error("❌ 上传指导书到 MinIO 失败: {}", newFileName, e);
+            log.error("上传指导书到 MinIO 失败: {}", newFileName, e);
             throw new BusinessException("上传指导书到对象存储失败，请重试！");
         }
 
@@ -162,9 +171,8 @@ public class TeacherProjectServiceImpl implements TeacherProjectService {
             throw new BusinessException("该项目下还有 " + sessionCount + " 个实验场次，请先取消排课后再删除！");
         }
 
-        // 【引用检查】学生报告通过 project_no 关联项目。
-        // 场次可能已被取消，但报告仍在 —— 此时直接删项目会让报告变成孤儿数据，
-        // 学生的"报告版本历史"仍按 projectNo 查询，却对不上任何项目。
+        // 引用检查：学生报告通过 project_no 关联项目。
+        // 场次可能已被取消，但报告仍在，此时直接删项目会让报告变成孤儿数据。
         long reportCount = reportMapper.selectCount(
                 new QueryWrapper<ExpReport>().eq("project_no", projectNo)
         );

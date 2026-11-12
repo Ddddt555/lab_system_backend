@@ -3,6 +3,7 @@ package com.lab.labsystem.service.impl;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.common.PageResult;
+import com.lab.labsystem.dto.request.ProjectCreateDTO;
 import com.lab.labsystem.entity.ExpProject;
 import com.lab.labsystem.entity.TeachClass;
 import com.lab.labsystem.mapper.ExpProjectMapper;
@@ -81,10 +82,10 @@ class TeacherProjectServiceImplTest {
     @Test
     @DisplayName("未选择教学班时拒绝发布项目")
     void addProjectRejectsMissingClass() {
-        ExpProject project = new ExpProject();
+        ProjectCreateDTO dto = new ProjectCreateDTO();
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.addProject(project, "T001"));
+                () -> service.addProject(dto, "T001"));
 
         assertEquals("请选择所属教学班！", e.getMessage());
         verify(projectMapper, never()).insert(any(ExpProject.class));
@@ -93,8 +94,8 @@ class TeacherProjectServiceImplTest {
     @Test
     @DisplayName("不能在其他教师的教学班下发布项目")
     void addProjectRejectsOtherTeacherClass() {
-        ExpProject project = new ExpProject();
-        project.setClassNo("C001");
+        ProjectCreateDTO dto = new ProjectCreateDTO();
+        dto.setClassNo("C001");
 
         TeachClass tc = new TeachClass();
         tc.setClassNo("C001");
@@ -102,7 +103,7 @@ class TeacherProjectServiceImplTest {
         when(teachClassMapper.selectById("C001")).thenReturn(tc);
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> service.addProject(project, "T001"));
+                () -> service.addProject(dto, "T001"));
 
         assertEquals("非法操作：您无权在该教学班下发布项目！", e.getMessage());
         verify(projectMapper, never()).insert(any(ExpProject.class));
@@ -111,8 +112,10 @@ class TeacherProjectServiceImplTest {
     @Test
     @DisplayName("发布成功时生成项目号并落库")
     void addProjectSuccess() {
-        ExpProject project = new ExpProject();
-        project.setClassNo("C001");
+        ProjectCreateDTO dto = new ProjectCreateDTO();
+        dto.setClassNo("C001");
+        dto.setProjectName("测试项目");
+        dto.setHours(2);
 
         TeachClass tc = new TeachClass();
         tc.setClassNo("C001");
@@ -120,12 +123,13 @@ class TeacherProjectServiceImplTest {
         when(teachClassMapper.selectById("C001")).thenReturn(tc);
         when(numberGenerator.generateProjectNo()).thenReturn("P2025001");
 
-        String msg = service.addProject(project, "T001");
+        String msg = service.addProject(dto, "T001");
 
         assertTrue(msg.contains("P2025001"));
         ArgumentCaptor<ExpProject> captor = ArgumentCaptor.forClass(ExpProject.class);
         verify(projectMapper).insert(captor.capture());
         assertEquals("P2025001", captor.getValue().getProjectNo());
+        assertEquals("测试项目", captor.getValue().getProjectName());
     }
 
     @Test
@@ -187,8 +191,6 @@ class TeacherProjectServiceImplTest {
         assertEquals("文件格式非法！", e.getMessage());
         verify(minioService, never()).upload(any(), anyString());
     }
-
-    // ================= 新增的删除项目测试 =================
 
     @Test
     @DisplayName("项目不存在时拒绝删除")

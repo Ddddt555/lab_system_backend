@@ -1,6 +1,6 @@
 package com.lab.labsystem.service;
 
-import com.lab.labsystem.entity.ExpProject;
+import com.lab.labsystem.dto.request.ProjectCreateDTO;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
@@ -21,10 +21,12 @@ public interface TeacherProjectService {
     /**
      * 发布实验项目。
      *
+     * @param dto 包含项目名称、教学班号、学时、考核标准等基本信息
+     * @param workNo 当前操作的教师工号，用于校验权限
      * @return 成功提示（含生成的项目号）
      * @throws com.lab.labsystem.common.BusinessException 未选教学班或无权在该班发布
      */
-    String addProject(ExpProject project, String workNo);
+    String addProject(ProjectCreateDTO dto, String workNo);
 
     /**
      * 上传实验指导书。
