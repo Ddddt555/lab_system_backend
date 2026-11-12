@@ -39,14 +39,10 @@ public class JwtInterceptor implements HandlerInterceptor {
         String clientIp = getClientIp(request);
         String requestUri = request.getRequestURI();
 
+        // 【安全加固】只允许从 Authorization Header 读取 Token，杜绝 URL 传 Token 的日志泄露风险
         String token = request.getHeader("Authorization");
         if (token != null && token.startsWith("Bearer ")) {
             token = token.substring(7);
-        } else {
-            String paramToken = request.getParameter("token");
-            if (paramToken != null && !paramToken.isEmpty()) {
-                token = paramToken;
-            }
         }
 
         if (token != null) {
@@ -69,14 +65,23 @@ public class JwtInterceptor implements HandlerInterceptor {
                     return false;
                 }
 
-                // 校验设备指纹，防止 Token 被跨设备盗用
+                // 严格校验设备指纹，防止 Token 被跨设备盗用
                 String tokenDeviceId = (String) claims.get("deviceId");
                 String requestDeviceId = request.getHeader("X-Device-Id");
-                if (tokenDeviceId != null && requestDeviceId != null && !tokenDeviceId.equals(requestDeviceId)) {
-                    securityLog.warn("【设备异常】Token 设备指纹不匹配，疑似 Token 盗用。URI: {}, Token设备: {}, 请求设备: {}, IP: {}", 
-                            requestUri, tokenDeviceId, requestDeviceId, clientIp);
-                    response.setStatus(401);
-                    return false;
+                
+                if (tokenDeviceId != null) {
+                    // Token 里绑定了设备，那么请求必须带设备 ID，且必须一致
+                    if (requestDeviceId == null || requestDeviceId.trim().isEmpty()) {
+                        securityLog.warn("【非法访问】请求未携带 X-Device-Id 头，被拦截。URI: {}, IP: {}", requestUri, clientIp);
+                        response.setStatus(401);
+                        return false;
+                    }
+                    if (!tokenDeviceId.equals(requestDeviceId)) {
+                        securityLog.warn("【设备异常】Token 设备指纹不匹配，疑似 Token 盗用。URI: {}, Token设备: {}, 请求设备: {}, IP: {}", 
+                                requestUri, tokenDeviceId, requestDeviceId, clientIp);
+                        response.setStatus(401);
+                        return false;
+                    }
                 }
 
                 String userNo = claims.getSubject();

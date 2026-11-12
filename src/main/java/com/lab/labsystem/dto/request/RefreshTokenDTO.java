@@ -13,5 +13,6 @@ public class RefreshTokenDTO {
     private String refreshToken;
 
     /** 浏览器设备指纹 */
+    @NotBlank(message = "设备标识不能为空")
     private String deviceId;
 }
