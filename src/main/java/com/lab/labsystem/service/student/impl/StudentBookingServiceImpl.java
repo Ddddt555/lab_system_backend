@@ -12,6 +12,8 @@ import com.lab.labsystem.service.student.StudentBookingService;
 import com.lab.labsystem.vo.SessionVO;
 import com.lab.labsystem.websocket.GlobalWebSocket;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -43,6 +45,7 @@ public class StudentBookingServiceImpl implements StudentBookingService {
     @Autowired private WaitlistRecordMapper waitlistRecordMapper;
     @Autowired private StringRedisTemplate stringRedisTemplate;
     @Autowired private TeacherMapper teacherMapper;
+    @Autowired private RedissonClient redissonClient;
 
     // 候补队列在 Redis 中的 Key 前缀
     private static final String WAITLIST_QUEUE_PREFIX = "waitlist:queue:";
@@ -52,17 +55,27 @@ public class StudentBookingServiceImpl implements StudentBookingService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String bookSession(String studentNo, String sessionNo) {
-        // 增加 Redis 幂等锁，防止用户狂点按钮导致并发超卖
         String lockKey = "lock:book:" + studentNo + ":" + sessionNo;
-        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, "1", 5, TimeUnit.SECONDS);
-        if (!Boolean.TRUE.equals(locked)) {
-            throw BusinessException.of(ErrorCode.CONCURRENT_CONFLICT, "您正在预约中，请勿频繁点击！");
-        }
+        RLock lock = redissonClient.getLock(lockKey);
 
+        boolean isLocked = false;
         try {
+            // waitTime 为 0，表示不等待，抢不到锁立刻返回失败
+            // leaseTime 为 -1，表示开启看门狗机制，自动为业务耗时较长的锁续期
+            isLocked = lock.tryLock(0, -1, TimeUnit.SECONDS);
+            if (!isLocked) {
+                throw BusinessException.of(ErrorCode.CONCURRENT_CONFLICT, "您正在预约中，请勿频繁点击！");
+            }
+            
             return doBookSession(studentNo, sessionNo, false);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw BusinessException.of(ErrorCode.SYSTEM_ERROR, "系统繁忙，请稍后重试！");
         } finally {
-            stringRedisTemplate.delete(lockKey);
+            // 校验当前线程是否持有该锁，防止误删其他线程的锁
+            if (isLocked && lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
         }
     }
 
