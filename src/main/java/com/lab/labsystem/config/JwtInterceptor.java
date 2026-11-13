@@ -118,9 +118,8 @@ public class JwtInterceptor implements HandlerInterceptor {
         String ticket = request.getParameter("ticket");
         if (ticket != null && !ticket.isEmpty()) {
             String redisKey = "report:ticket:" + ticket;
-            String userInfo = stringRedisTemplate.opsForValue().get(redisKey);
+            String userInfo = stringRedisTemplate.opsForValue().getAndDelete(redisKey);
             if (userInfo != null) {
-                stringRedisTemplate.delete(redisKey);
                 String[] parts = userInfo.split(":");
                 request.setAttribute("currentUserNo", parts[0]);
                 request.setAttribute("currentUserRole", parts[1]);

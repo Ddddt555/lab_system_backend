@@ -42,10 +42,9 @@ public class GlobalWebSocket implements MessageListener {
         if (ticket == null) { closeSession(session, "缺少Ticket"); return; }
 
         String redisKey = "ws:ticket:" + ticket;
-        String userInfo = stringRedisTemplate.opsForValue().get(redisKey);
+        String userInfo = stringRedisTemplate.opsForValue().getAndDelete(redisKey);
 
         if (userInfo == null) { closeSession(session, "票据无效"); return; }
-        stringRedisTemplate.delete(redisKey);
 
         String[] parts = userInfo.split(":");
         String userNo = parts.length > 0 ? parts[0] : null;
