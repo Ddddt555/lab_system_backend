@@ -126,7 +126,7 @@ class TokenServiceImplTest {
     }
 
     @Test
-    @DisplayName("刷新令牌：Lua 脚本返回 FAIL 时，判定为重放攻击并记录审计日志")
+    @DisplayName("刷新令牌：Lua 脚本返回 FAIL 时，判定为重放攻击，记录日志并强制下线")
     void refreshRejectsMismatch() {
         String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
 
@@ -145,8 +145,17 @@ class TokenServiceImplTest {
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.refreshToken(refreshToken, DEVICE_ID));
 
-        assertEquals("安全警告：检测到异常刷新操作，本次请求已被拒绝！", e.getMessage());
+        // 验证异常文案（已更新为强制下线）
+        assertEquals("安全警告：检测到异常刷新操作，已被强制下线，请重新登录！", e.getMessage());
+        
+        // 验证记录审计日志
         verify(logMapper).insert(any(SysLog.class));
+        
+        // 验证执行了强制下线的 Revoke 脚本（调用类型为 Long）
+        verify(redis).execute(ArgumentMatchers.<DefaultRedisScript<Long>>any(), anyList(), anyString(), anyString());
+        
+        // 验证移除了设备记录
+        verify(zSetOps).remove("user:devices:S001", DEVICE_ID);
     }
 
     @Test
