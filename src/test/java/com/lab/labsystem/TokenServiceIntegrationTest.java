@@ -1,18 +1,22 @@
 package com.lab.labsystem;
 
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.mapper.SysLogMapper;
 import com.lab.labsystem.service.auth.TokenService;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.Arrays;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@ActiveProfiles("test")
 @Tag("integration")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
@@ -23,6 +27,10 @@ public class TokenServiceIntegrationTest {
 
     @Autowired
     private StringRedisTemplate realRedisTemplate;
+
+    // 将依赖数据库的 Mapper 拦截掉，测试环境不再强依赖 MySQL
+    @MockitoBean
+    private SysLogMapper logMapper;
 
     private final String userNo = "TestUser";
     private final String role = "student";
@@ -80,10 +88,10 @@ public class TokenServiceIntegrationTest {
         assertFalse(realRedisTemplate.hasKey("refresh_token:" + hashTag));
         assertFalse(realRedisTemplate.hasKey("refresh:idem:" + hashTag));
 
-        // 验证重放攻击被拦截（现在再拿旧 Token 刷新，应该直接报错，因为主 Token 和缓存都没了）
-        BusinessException e = assertThrows(BusinessException.class, 
+        // 验证重放攻击被拦截（此时主 Token 和缓存都没了）
+        BusinessException e = assertThrows(BusinessException.class,
                 () -> tokenService.refreshToken(oldRefreshToken, deviceId));
         
-        assertEquals("安全警告：检测到异常刷新操作，本次请求已被拒绝！", e.getMessage());
+        assertEquals("安全警告：检测到异常刷新操作，已被强制下线，请重新登录！", e.getMessage());
     }
 }
