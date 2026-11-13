@@ -25,6 +25,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.JwtUtil;
+import com.lab.labsystem.entity.SysLog;
 import com.lab.labsystem.mapper.SysLogMapper;
 import com.lab.labsystem.service.auth.impl.TokenServiceImpl;
 
@@ -34,6 +35,7 @@ class TokenServiceImplTest {
     private StringRedisTemplate redis;
     private ValueOperations<String, String> ops;
     private ZSetOperations<String, String> zSetOps;
+    private SysLogMapper logMapper;
     private TokenServiceImpl service;
 
     @BeforeAll
@@ -51,11 +53,12 @@ class TokenServiceImplTest {
         redis = mock(StringRedisTemplate.class);
         ops = mock(ValueOperations.class);
         zSetOps = mock(ZSetOperations.class);
+        logMapper = mock(SysLogMapper.class);
 
         when(redis.opsForValue()).thenReturn(ops);
         when(redis.opsForZSet()).thenReturn(zSetOps);
 
-        service = new TokenServiceImpl(redis, mock(SysLogMapper.class));
+        service = new TokenServiceImpl(redis, logMapper);
     }
 
     @Test
@@ -71,11 +74,10 @@ class TokenServiceImplTest {
     }
 
     @Test
-    @DisplayName("刷新令牌：轮换成功或命中有效缓存，返回新 Token")
-    void refreshSuccessOrCached() {
+    @DisplayName("刷新令牌：轮换成功，返回新 Token 并更新活跃时间")
+    void refreshSuccess() {
         String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
 
-        // 模拟 Lua 脚本返回 SUCCESS 及拼接结果
         String luaResult = "SUCCESS|new-access-token|new-refresh-token|new-jti";
         when(redis.execute(
                 ArgumentMatchers.<DefaultRedisScript<String>>any(),
@@ -97,7 +99,32 @@ class TokenServiceImplTest {
     }
 
     @Test
-    @DisplayName("刷新令牌：Lua 脚本返回 FAIL 时，判定为重放攻击并拦截")
+    @DisplayName("刷新令牌：命中并发幂等缓存，返回缓存中的 Token")
+    void refreshCached() {
+        String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
+
+        String luaResult = "CACHED|cached-access-token|cached-refresh-token|cached-jti";
+        when(redis.execute(
+                ArgumentMatchers.<DefaultRedisScript<String>>any(),
+                anyList(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        )).thenReturn(luaResult);
+
+        Map<String, Object> data = service.refreshToken(refreshToken, DEVICE_ID);
+
+        assertEquals("cached-access-token", data.get("token"));
+        assertEquals("cached-refresh-token", data.get("refreshToken"));
+        verify(zSetOps).add(eq("user:devices:S001"), eq(DEVICE_ID), any(Double.class));
+    }
+
+    @Test
+    @DisplayName("刷新令牌：Lua 脚本返回 FAIL 时，判定为重放攻击并记录审计日志")
     void refreshRejectsMismatch() {
         String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
 
@@ -117,10 +144,11 @@ class TokenServiceImplTest {
                 () -> service.refreshToken(refreshToken, DEVICE_ID));
 
         assertEquals("安全警告：检测到异常刷新操作，已被强制下线，请重新登录！", e.getMessage());
+        verify(logMapper).insert(any(SysLog.class));
     }
 
     @Test
-    @DisplayName("登出：应调用原子脚本清理主 Token 与幂等缓存，并移除设备")
+    @DisplayName("登出：调用原子脚本清理主 Token 与幂等缓存，并移除设备")
     void revokeTokensClearsIdempotentCache() {
         String accessToken = JwtUtil.generateAccessToken("S001", "student", DEVICE_ID);
         String tokenWithBearer = "Bearer " + accessToken;

@@ -53,9 +53,9 @@ public class TokenServiceImpl implements TokenService {
      * ARGV[6]: 主 Token 过期时间 (秒)
      * ARGV[7]: 幂等缓存过期时间 (秒)
      * 
-     * 返回码:
-     * SUCCESS: 轮换成功
-     * CACHED: 命中幂等缓存且有效
+     * 返回值说明:
+     * SUCCESS|accessToken|refreshToken|jti: 轮换成功
+     * CACHED|accessToken|refreshToken|jti:  命中幂等缓存且有效
      * FAIL: 匹配失败或会话失效
      */
     private static final String REFRESH_TOKEN_LUA_SCRIPT =
@@ -65,7 +65,7 @@ public class TokenServiceImpl implements TokenService {
             "   if currentToken then " +
             "       local parts = {} " +
             "       for match in string.gmatch(cached, '([^|]+)') do table.insert(parts, match) end " +
-            "       if parts[3] == currentToken then " +
+            "       if parts[2] == currentToken then " +
             "           return 'CACHED|' .. cached " +
             "       end " +
             "   end " +

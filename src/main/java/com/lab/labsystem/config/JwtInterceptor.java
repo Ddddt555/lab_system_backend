@@ -39,7 +39,6 @@ public class JwtInterceptor implements HandlerInterceptor {
         String clientIp = getClientIp(request);
         String requestUri = request.getRequestURI();
 
-        // 只允许从 Authorization Header 读取 Token，杜绝 URL 传 Token 的日志泄露风险
         String token = request.getHeader("Authorization");
         if (token != null && token.startsWith("Bearer ")) {
             token = token.substring(7);
@@ -49,35 +48,30 @@ public class JwtInterceptor implements HandlerInterceptor {
             try {
                 Claims claims = JwtUtil.parseToken(token);
 
-                // 校验令牌类型，仅允许 Access Token 访问业务接口
                 if (!"access".equals(claims.get("type"))) {
-                    securityLog.warn("【非法访问】尝试使用非 Access Token 访问接口。URI: {}, Type: {}, IP: {}", 
-                            requestUri, claims.get("type"), clientIp);
+                    securityLog.warn("【非法访问】尝试使用非 Access Token 访问接口。URI: {}, IP: {}", requestUri, clientIp);
                     response.setStatus(401);
                     return false;
                 }
 
                 String jti = claims.getId();
-                // 校验黑名单（调用 TokenService）
                 if (tokenService.isBlacklisted(jti)) {
                     securityLog.warn("【非法访问】尝试使用已被拉黑的 Token 访问接口。URI: {}, IP: {}", requestUri, clientIp);
                     response.setStatus(401);
                     return false;
                 }
 
-                // 严格校验设备指纹，防止 Token 被跨设备盗用
                 String tokenDeviceId = (String) claims.get("deviceId");
                 String requestDeviceId = request.getHeader("X-Device-Id");
                 
-                // 强制校验：只要有一方缺失，或者不匹配，直接拒绝
                 if (tokenDeviceId == null || requestDeviceId == null || requestDeviceId.trim().isEmpty()) {
-                    securityLog.warn("【非法访问】请求未携带 X-Device-Id 头或 Token 缺失设备信息，被拦截。URI: {}, IP: {}", requestUri, clientIp);
+                    securityLog.warn("【非法访问】请求未携带 X-Device-Id 头或 Token 缺失设备信息。URI: {}, IP: {}", requestUri, clientIp);
                     response.setStatus(401);
                     return false;
                 }
                 
                 if (!tokenDeviceId.equals(requestDeviceId)) {
-                    securityLog.warn("【设备异常】Token 设备指纹不匹配，疑似 Token 盗用。URI: {}, Token设备: {}, 请求设备: {}, IP: {}", 
+                    securityLog.warn("【设备异常】Token 设备指纹不匹配。URI: {}, Token设备: {}, 请求设备: {}, IP: {}", 
                             requestUri, tokenDeviceId, requestDeviceId, clientIp);
                     response.setStatus(401);
                     return false;
@@ -86,10 +80,19 @@ public class JwtInterceptor implements HandlerInterceptor {
                 String userNo = claims.getSubject();
                 String role = (String) claims.get("role");
 
+                // 校验该设备是否已被登出（通过检查刷新令牌是否还存在）
+                String hashTag = "{" + userNo + ":" + tokenDeviceId + "}";
+                String refreshTokenKey = "refresh_token:" + hashTag;
+                if (!Boolean.TRUE.equals(stringRedisTemplate.hasKey(refreshTokenKey))) {
+                    securityLog.warn("【会话已撤销】设备已被登出或踢下线，Access Token 强制失效。用户: {}, 设备: {}, URI: {}", 
+                            userNo, tokenDeviceId, requestUri);
+                    response.setStatus(401);
+                    return false;
+                }
+
                 request.setAttribute("currentUserNo", userNo);
                 request.setAttribute("currentUserRole", role);
 
-                // 校验用户是否需要强制修改密码
                 boolean mustChange = mustChangePasswordCache.isRequired(role, userNo);
                 boolean isWhitelisted = requestUri.endsWith("/update-password") || 
                                         requestUri.endsWith("/notice/list") || 
@@ -112,7 +115,6 @@ public class JwtInterceptor implements HandlerInterceptor {
             }
         }
         
-        // 解析短时效一次性票据 (Ticket)
         String ticket = request.getParameter("ticket");
         if (ticket != null && !ticket.isEmpty()) {
             String redisKey = "report:ticket:" + ticket;
@@ -122,11 +124,9 @@ public class JwtInterceptor implements HandlerInterceptor {
                 String[] parts = userInfo.split(":");
                 request.setAttribute("currentUserNo", parts[0]);
                 request.setAttribute("currentUserRole", parts[1]);
-                
                 if (parts.length > 2) {
                     request.setAttribute("ticketFileName", parts[2]);
                 }
-                
                 return true;
             } else {
                 securityLog.warn("【非法票据】试图使用无效或已过期的 Ticket 访问接口。URI: {}, IP: {}", requestUri, clientIp);
@@ -137,15 +137,11 @@ public class JwtInterceptor implements HandlerInterceptor {
         return false;
     }
 
-    /**
-     * 获取请求的真实客户端 IP
-     */
     private String getClientIp(HttpServletRequest request) {
         String ip = request.getHeader("X-Forwarded-For");
         if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
             ip = request.getRemoteAddr();
         }
-        // 处理多级代理的情况（取第一个非 unknown 的 IP）
         if (ip != null && ip.contains(",")) {
             ip = ip.split(",")[0].trim();
         }
