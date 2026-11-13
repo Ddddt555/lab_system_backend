@@ -112,29 +112,55 @@ public class TokenServiceIntegrationTest {
         String hashTag = "{" + userNo + ":" + deviceId + "}";
         String oldRefreshToken = realRedisTemplate.opsForValue().get("refresh_token:" + hashTag);
         
-        // 先刷一次拿个合法的 AccessToken
         Map<String, Object> result = tokenService.refreshToken(oldRefreshToken, deviceId);
         String accessToken = (String) result.get("token");
 
-        // 构造 HTTP 请求头，携带合法 Token 和 DeviceId
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + accessToken);
         headers.set("X-Device-Id", deviceId);
         HttpEntity<String> entity = new HttpEntity<>(headers);
 
-        // 1. 验证登出前，访问受保护接口是畅通的
         ResponseEntity<String> beforeResponse = restTemplate.exchange("/api/notice/list", HttpMethod.GET, entity, String.class);
         assertEquals(200, beforeResponse.getStatusCode().value(), "登出前，携带有效 Token 应能成功访问");
 
-        // 2. 执行登出操作
         tokenService.revokeTokens("Bearer " + accessToken);
 
-        // 3. 验证 Redis 里的会话确已被清空
         assertFalse(realRedisTemplate.hasKey("refresh_token:" + hashTag));
         assertFalse(realRedisTemplate.hasKey("refresh:idem:" + hashTag));
 
-        // 4. 验证登出后，携带同一个 Access Token 再次访问，应被 JwtInterceptor 拦截返回 401
         ResponseEntity<String> afterResponse = restTemplate.exchange("/api/notice/list", HttpMethod.GET, entity, String.class);
         assertEquals(401, afterResponse.getStatusCode().value(), "登出后，旧 Access Token 应被拦截返回 401");
+    }
+
+    @Test
+    @Order(4)
+    @DisplayName("4. 零容忍策略验证：旧 Token 重放将撤销该设备当前有效会话")
+    void testReplayAttackRevokesAllSessions() {
+        String hashTag = "{" + userNo + ":" + deviceId + "}";
+        
+        // 清理环境，重新生成一对初始 Token
+        realRedisTemplate.delete(Arrays.asList(
+                "refresh_token:" + hashTag,
+                "refresh:idem:" + hashTag
+        ));
+        Map<String, Object> initialTokens = tokenService.createTokenPair(userNo, role, deviceId);
+        String oldRefreshToken = (String) initialTokens.get("refreshToken");
+
+        // 用户正常刷新，拿到了第二对 Token
+        Map<String, Object> latestTokens = tokenService.refreshToken(oldRefreshToken, deviceId);
+        String currentValidRefreshToken = (String) latestTokens.get("refreshToken");
+        assertEquals(currentValidRefreshToken, realRedisTemplate.opsForValue().get("refresh_token:" + hashTag));
+
+        // 手动清除幂等缓存（模拟 5 分钟时间窗口已过）
+        // 如果不清理，此时用旧 token 会命中缓存返回成功，不会触发重放拦截
+        realRedisTemplate.delete("refresh:idem:" + hashTag);
+
+        // 攻击者（或延迟的请求）拿着已被替换的旧 Token 来重放
+        assertThrows(com.lab.labsystem.common.BusinessException.class, 
+                () -> tokenService.refreshToken(oldRefreshToken, deviceId));
+
+        // 核心断言：零容忍策略生效！不仅拒绝重放，当前最新的有效 Token 也一并被销毁
+        assertFalse(realRedisTemplate.hasKey("refresh_token:" + hashTag), "重放攻击触发后，当前有效的 Refresh Token 必须被强制销毁");
+        assertFalse(realRedisTemplate.hasKey("refresh:idem:" + hashTag), "重放攻击触发后，幂等缓存必须被强制销毁");
     }
 }

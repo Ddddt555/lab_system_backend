@@ -187,15 +187,20 @@ public class TokenServiceImpl implements TokenService {
             );
 
             if (result == null || result.startsWith("FAIL")) {
+                // 安全策略说明：
+                // 由于合法的并发重试已由上面的幂等缓存处理（命中 CACHED 分支），
+                // 因此一旦走到 FAIL，说明令牌在 5 分钟幂等窗口外被重放，或遭恶意攻击。
+                // 依据“零容忍”防御策略，不仅拒绝本次请求，还将强制注销该设备的全部当前会话。
                 SysLog dbLog = new SysLog();
                 dbLog.setOperator("用户-" + userNo);
-                dbLog.setAction("安全拦截：设备 " + deviceId + " 尝试重放旧刷新令牌，已强制下线");
+                dbLog.setAction("安全拦截：设备 " + deviceId + " 触发刷新令牌重放，依据零容忍策略已强制注销该设备全部会话");
                 dbLog.setCreateTime(LocalDateTime.now());
                 dbLog.setSuccess(0);
                 logMapper.insert(dbLog);
 
-                securityLog.warn("【重放攻击拦截】用户: {}, 设备: {}, 使用了已失效或被替换的 RefreshToken，已强制下线", userNo, deviceId);
+                securityLog.warn("【重放攻击拦截】用户: {}, 设备: {}, 使用了失效的 RefreshToken，已触发零容忍策略并强制下线该设备", userNo, deviceId);
 
+                // 执行强制下线：删除当前设备最新的有效 RefreshToken 和 幂等缓存
                 DefaultRedisScript<Long> revokeScript = new DefaultRedisScript<>(REVOKE_TOKEN_LUA_SCRIPT, Long.class);
                 stringRedisTemplate.execute(revokeScript, Arrays.asList(redisKey, idempotentKey));
                 stringRedisTemplate.opsForZSet().remove(USER_DEVICES_PREFIX + userNo, deviceId);
