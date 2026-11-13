@@ -19,9 +19,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -60,8 +63,6 @@ public class StudentBookingServiceImpl implements StudentBookingService {
 
         boolean isLocked = false;
         try {
-            // waitTime 为 0，表示不等待，抢不到锁立刻返回失败
-            // leaseTime 为 -1，表示开启看门狗机制，自动为业务耗时较长的锁续期
             isLocked = lock.tryLock(0, -1, TimeUnit.SECONDS);
             if (!isLocked) {
                 throw BusinessException.of(ErrorCode.CONCURRENT_CONFLICT, "您正在预约中，请勿频繁点击！");
@@ -72,7 +73,6 @@ public class StudentBookingServiceImpl implements StudentBookingService {
             Thread.currentThread().interrupt();
             throw BusinessException.of(ErrorCode.SYSTEM_ERROR, "系统繁忙，请稍后重试！");
         } finally {
-            // 校验当前线程是否持有该锁，防止误删其他线程的锁
             if (isLocked && lock.isHeldByCurrentThread()) {
                 lock.unlock();
             }
@@ -160,32 +160,48 @@ public class StudentBookingServiceImpl implements StudentBookingService {
         if (booked > 0) throw BusinessException.of(ErrorCode.BAD_REQUEST, "您已预约该场次，无需排队！");
 
         String userKey = WAITLIST_USER_PREFIX + sessionNo + ":" + studentNo;
-        if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(userKey))) {
+        
+        // 使用 setIfAbsent 代替 hasKey + set，保证并发防重的原子性
+        Boolean isAbsent = stringRedisTemplate.opsForValue().setIfAbsent(userKey, "1", Duration.ofDays(1));
+        if (!Boolean.TRUE.equals(isAbsent)) {
             throw BusinessException.of(ErrorCode.BAD_REQUEST, "您已经在候补队列中，请耐心等待！");
         }
 
-        // 1. 清理历史废弃记录
-        waitlistRecordMapper.delete(new QueryWrapper<WaitlistRecord>()
-                .eq("session_no", sessionNo).eq("student_no", studentNo));
-
-        // 2. 先写入 MySQL，状态设为 WAITING
-        WaitlistRecord record = new WaitlistRecord();
-        record.setSessionNo(sessionNo);
-        record.setStudentNo(studentNo);
-        record.setCreateTime(LocalDateTime.now());
-        record.setStatus("WAITING"); // 排队中
-        waitlistRecordMapper.insert(record);
-
-        // 3. 写入 Redis 队列 (右边进，左边出)
         try {
-            String queueKey = WAITLIST_QUEUE_PREFIX + sessionNo;
-            stringRedisTemplate.opsForList().rightPush(queueKey, studentNo);
-            // 4. 设置防重复标记
-            stringRedisTemplate.opsForValue().set(userKey, "1");
+            // 清理历史废弃记录
+            waitlistRecordMapper.delete(new QueryWrapper<WaitlistRecord>()
+                    .eq("session_no", sessionNo).eq("student_no", studentNo));
+
+            // 写入 MySQL
+            WaitlistRecord record = new WaitlistRecord();
+            record.setSessionNo(sessionNo);
+            record.setStudentNo(studentNo);
+            record.setCreateTime(LocalDateTime.now());
+            record.setStatus("WAITING");
+            waitlistRecordMapper.insert(record);
         } catch (Exception e) {
-            // 如果 Redis 写入失败，抛出异常触发 MySQL 事务回滚，保证一致性
-            throw new RuntimeException("排队人数过多，系统繁忙，请稍后再试！", e);
+            // 如果数据库写入失败（比如唯一键冲突），把刚才在 Redis 占的坑释放掉，保持数据一致
+            stringRedisTemplate.delete(userKey);
+            throw e;
         }
+
+        // 注册事务同步器，只有在 MySQL 事务成功 Commit 之后，才去写 Redis 队列
+        // 避免 MySQL 回滚导致 Redis 残留幽灵数据
+        TransactionSynchronizationManager.registerSynchronization(
+            new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        String queueKey = WAITLIST_QUEUE_PREFIX + sessionNo;
+                        stringRedisTemplate.opsForList().rightPush(queueKey, studentNo);
+                    } catch (Exception e) {
+                        // 如果这里写 Redis 失败，数据库已经提交。
+                        // 依赖 WaitlistReconcileTask 定时对账任务自动补偿
+                        log.error("加入候补队列写入 Redis 失败，等待定时任务补偿", e);
+                    }
+                }
+            }
+        );
 
         return "已成功加入候补队列，一旦有人退课，系统将为您自动预约！";
     }
