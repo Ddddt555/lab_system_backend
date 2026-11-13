@@ -83,11 +83,17 @@ public class JwtInterceptor implements HandlerInterceptor {
                 // 校验该设备是否已被登出（通过检查刷新令牌是否还存在）
                 String hashTag = "{" + userNo + ":" + tokenDeviceId + "}";
                 String refreshTokenKey = "refresh_token:" + hashTag;
-                if (!Boolean.TRUE.equals(stringRedisTemplate.hasKey(refreshTokenKey))) {
-                    securityLog.warn("【会话已撤销】设备已被登出或踢下线，Access Token 强制失效。用户: {}, 设备: {}, URI: {}", 
-                            userNo, tokenDeviceId, requestUri);
-                    response.setStatus(401);
-                    return false;
+                try {
+                    if (!Boolean.TRUE.equals(stringRedisTemplate.hasKey(refreshTokenKey))) {
+                        securityLog.warn("【会话已撤销】设备已被登出或踢下线，Access Token 强制失效。用户: {}, 设备: {}, URI: {}", 
+                                userNo, tokenDeviceId, requestUri);
+                        response.setStatus(401);
+                        return false;
+                    }
+                } catch (Exception e) {
+                    // 降级策略：若 Redis 故障，记录严重异常用于监控告警，并降级放行（依赖 JWT 自身过期时间兜底）
+                    securityLog.error("【Redis故障降级】会话状态检查失败，放行当前请求。用户: {}, 设备: {}, URI: {}", 
+                            userNo, tokenDeviceId, requestUri, e);
                 }
 
                 request.setAttribute("currentUserNo", userNo);
