@@ -194,7 +194,12 @@ public class TokenServiceImpl implements TokenService {
                 dbLog.setSuccess(0);
                 logMapper.insert(dbLog);
 
-                securityLog.warn("【重放攻击拦截】用户: {}, 设备: {}, 使用了已失效或被替换的 RefreshToken", userNo, deviceId);
+                securityLog.warn("【重放攻击拦截】用户: {}, 设备: {}, 使用了已失效或被替换的 RefreshToken，已强制下线", userNo, deviceId);
+
+                DefaultRedisScript<Long> revokeScript = new DefaultRedisScript<>(REVOKE_TOKEN_LUA_SCRIPT, Long.class);
+                stringRedisTemplate.execute(revokeScript, Arrays.asList(redisKey, idempotentKey));
+                stringRedisTemplate.opsForZSet().remove(USER_DEVICES_PREFIX + userNo, deviceId);
+
                 throw BusinessException.of(ErrorCode.FORBIDDEN, "安全警告：检测到异常刷新操作，已被强制下线，请重新登录！");
             }
 
@@ -240,7 +245,10 @@ public class TokenServiceImpl implements TokenService {
                     
                     stringRedisTemplate.opsForZSet().remove(USER_DEVICES_PREFIX + userNo, deviceId);
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                securityLog.error("【登出异常】清理 Redis 会话失败，Token 可能仍有效", e);
+                throw BusinessException.of(ErrorCode.SYSTEM_ERROR, "登出失败，网络或缓存异常，请重试！");
+            }
         }
     }
 

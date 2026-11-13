@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.ZSetOperations;
@@ -143,7 +145,7 @@ class TokenServiceImplTest {
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.refreshToken(refreshToken, DEVICE_ID));
 
-        assertEquals("安全警告：检测到异常刷新操作，已被强制下线，请重新登录！", e.getMessage());
+        assertEquals("安全警告：检测到异常刷新操作，本次请求已被拒绝！", e.getMessage());
         verify(logMapper).insert(any(SysLog.class));
     }
 
@@ -157,6 +159,21 @@ class TokenServiceImplTest {
 
         verify(redis).execute(any(DefaultRedisScript.class), anyList());
         verify(zSetOps).remove("user:devices:S001", DEVICE_ID);
+    }
+
+    @Test
+    @DisplayName("登出：Redis 发生异常时应抛出 BusinessException，防止假登出")
+    void revokeTokensFailsOnRedisError() {
+        String accessToken = JwtUtil.generateAccessToken("S001", "student", DEVICE_ID);
+        String tokenWithBearer = "Bearer " + accessToken;
+
+        doThrow(new RedisConnectionFailureException("Redis down"))
+                .when(redis).execute(any(DefaultRedisScript.class), anyList());
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.revokeTokens(tokenWithBearer));
+
+        assertEquals("登出失败，网络或缓存异常，请重试！", e.getMessage());
     }
 
     @Test
