@@ -11,7 +11,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.*;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -70,7 +73,7 @@ public class TokenServiceIntegrationTest {
 
     @Test
     @Order(2)
-    @DisplayName("2. 真实 Redis 真并发：多线程同时刷新，验证原子性与幂等")
+    @DisplayName("2. 真实 Redis 真并发：多线程同时刷新，验证结果一致性及原子性")
     void testTrueConcurrentRefresh() throws Exception {
         String hashTag = "{" + userNo + ":" + deviceId + "}";
         String oldRefreshToken = realRedisTemplate.opsForValue().get("refresh_token:" + hashTag);
@@ -79,7 +82,9 @@ public class TokenServiceIntegrationTest {
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         CountDownLatch readyLatch = new CountDownLatch(threads);
         CountDownLatch startLatch = new CountDownLatch(1);
-        AtomicInteger successCount = new AtomicInteger(0);
+        
+        // 使用线程安全的集合收集每个线程的返回结果
+        List<Map<String, Object>> results = Collections.synchronizedList(new ArrayList<>());
         AtomicInteger failCount = new AtomicInteger(0);
 
         for (int i = 0; i < threads; i++) {
@@ -87,8 +92,8 @@ public class TokenServiceIntegrationTest {
                 readyLatch.countDown();
                 try {
                     startLatch.await();
-                    tokenService.refreshToken(oldRefreshToken, deviceId);
-                    successCount.incrementAndGet();
+                    Map<String, Object> result = tokenService.refreshToken(oldRefreshToken, deviceId);
+                    results.add(result);
                 } catch (Exception e) {
                     failCount.incrementAndGet();
                 }
@@ -98,10 +103,30 @@ public class TokenServiceIntegrationTest {
         readyLatch.await();
         startLatch.countDown();
         executor.shutdown();
-        executor.awaitTermination(5, TimeUnit.SECONDS);
+        
+        // 断言线程池在规定时间内正常关闭
+        boolean terminated = executor.awaitTermination(5, TimeUnit.SECONDS);
+        assertTrue(terminated, "线程池未能在 5 秒内正常关闭，可能存在死锁或阻塞");
 
+        // 断言所有请求都成功
         assertEquals(0, failCount.get(), "真并发刷新不应出现异常");
-        assertEquals(threads, successCount.get(), "所有并发请求都应成功");
+        assertEquals(threads, results.size(), "成功返回的结果数量应与并发数一致");
+
+        // 断言所有线程拿到的 Token 结果是完全一致的
+        Map<String, Object> firstResult = results.get(0);
+        String expectedAccessToken = (String) firstResult.get("token");
+        String expectedRefreshToken = (String) firstResult.get("refreshToken");
+
+        for (Map<String, Object> result : results) {
+            assertEquals(expectedAccessToken, result.get("token"), "并发刷新得到的 AccessToken 应完全一致");
+            assertEquals(expectedRefreshToken, result.get("refreshToken"), "并发刷新得到的 RefreshToken 应完全一致");
+        }
+
+        // 断言 Redis 里最终存储的 RefreshToken 与返回值一致
+        String finalTokenInRedis = realRedisTemplate.opsForValue().get("refresh_token:" + hashTag);
+        assertEquals(expectedRefreshToken, finalTokenInRedis, "Redis 中最终的 RefreshToken 必须与返回给客户端的一致");
+        
+        // 断言幂等缓存 Hash 确实被写入了
         assertTrue(realRedisTemplate.hasKey("refresh:idem:" + hashTag));
     }
 
