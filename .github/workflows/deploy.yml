@@ -66,9 +66,8 @@ jobs:
     - name: 初始化测试库
       run: |
         docker exec -i ${{ job.services.mysql.id }} mysql -uroot -proot lab_management_test < src/main/resources/db/migration/V1__init.sql
-        docker exec -i ${{ job.services.mysql.id }} mysql -uroot -proot lab_management_test < src/main/resources/db/migration/V2__init_data.sql
-        docker exec -i ${{ job.services.mysql.id }} mysql -uroot -proot lab_management_test < src/main/resources/db/migration/V3__add_notice_read.sql
-        docker exec -i ${{ job.services.mysql.id }} mysql -uroot -proot lab_management_test < src/main/resources/db/migration/V4__add_indexes.sql
+        docker exec -i ${{ job.services.mysql.id }} mysql -uroot -proot lab_management_test < src/main/resources/db/migration/V2__add_notice_read.sql
+        docker exec -i ${{ job.services.mysql.id }} mysql -uroot -proot lab_management_test < src/main/resources/db/migration/V3__add_indexes.sql
         docker exec -i ${{ job.services.mysql.id }} mysql -uroot -proot lab_management_test < run_test_data.sql
 
     # -Pintegration 会把 surefire 的分组切换为 integration，只跑打了
