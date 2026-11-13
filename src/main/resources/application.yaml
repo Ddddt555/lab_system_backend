@@ -12,7 +12,6 @@ spring:
   application:
     name: labsystem
   
-  # 运行环境配置，默认 dev
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
@@ -22,7 +21,6 @@ spring:
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD}
 
-  # Flyway 数据库版本控制
   flyway:
     enabled: true
     baseline-on-migrate: true
@@ -30,7 +28,6 @@ spring:
     validate-on-migrate: false
     locations: classpath:db/migration
 
-  # Redis 缓存配置
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -45,27 +42,22 @@ spring:
           min-idle: 2
           max-wait: 2000ms
 
-  # 文件上传大小限制
   servlet:
     multipart:
       max-file-size: 50MB
       max-request-size: 100MB
 
-# JWT 认证配置（双 Token 机制）
 jwt:
   secret: ${JWT_SECRET}
   access-expire-minutes: 30
   refresh-expire-days: 7
 
-# 跨域配置
 cors:
   allowed-origins: ${CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
 
-# 本地文件存储目录
 file:
   upload-dir: ${UPLOAD_DIR:./uploads/}
 
-# MyBatis-Plus 配置
 mybatis-plus:
   configuration:
     log-impl: ${MYBATIS_LOG_IMPL:org.apache.ibatis.logging.stdout.StdOutImpl}
@@ -75,31 +67,26 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
-# 接口文档配置
 knife4j:
   enable: true
   production: ${KNIFE4J_PRODUCTION:false}
 
-# MinIO 对象存储配置
 minio:
   endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
   access-key: ${MINIO_ACCESS_KEY:minioadmin}
   secret-key: ${MINIO_SECRET_KEY}
   bucket-name: lab-files
 
-# 自定义应用配置
 app:
   security:
     test-login-enabled: ${TEST_LOGIN_ENABLED:false}
-  # 是否开启 cpolar 内网穿透兼容模式
   cpolar-compatible: ${CPOLAR_COMPATIBLE:false}
-  # 系统操作日志保留天数
   log:
     retention-days: ${LOG_RETENTION_DAYS:180}
+  admin:
+    # 管理员首次启动时的初始密码（若不配置则随机生成并打印在日志）
+    init-password: ${ADMIN_INIT_PASSWORD:}
 
-# ============================================================
-# 监控与日志配置
-# ============================================================
 management:
   endpoints:
     web:
@@ -108,13 +95,10 @@ management:
   metrics:
     tags:
       application: labsystem
-    # 监控指标分布配置
     distribution:
-      # 开启 HTTP 请求与自定义模块耗时的直方图统计，用于计算 P95/P99 延迟
       percentiles-histogram:
         http.server.requests: true
         api.module.duration: true
-      # 配置延迟分桶（SLO），确保百分位数计算更精确
       slo:
         http.server.requests: 100ms,300ms,500ms,1s,3s
         api.module.duration: 50ms,100ms,300ms,500ms,1s,3s

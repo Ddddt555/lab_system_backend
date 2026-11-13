@@ -8,12 +8,10 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: lab_management
       TZ: Asia/Shanghai
-      # 🛑【核心新增】将应用账号变量传给 MySQL 容器，供初始化脚本使用
       DB_USERNAME: ${DB_USERNAME}
       DB_APP_PASSWORD: ${DB_APP_PASSWORD}
     volumes:
       - mysql-data:/var/lib/mysql
-      # 🛑【核心新增】挂载初始化脚本目录，首次启动自动执行
       - ./db/init:/docker-entrypoint-initdb.d:ro
     networks:
       - lab-net
@@ -22,7 +20,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # 日志轮转，防止磁盘爆满
     logging:
       driver: "json-file"
       options:
@@ -34,7 +31,6 @@ services:
     image: redis:7.2-alpine
     container_name: labsystem-redis-prod
     restart: always
-    # 开启 AOF 持久化，并使用环境变量注入密码
     command: redis-server --appendonly yes --requirepass "${REDIS_PASSWORD}"
     volumes:
       - redis-data:/data
@@ -45,7 +41,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-    # 日志轮转
     logging:
       driver: "json-file"
       options:
@@ -54,17 +49,13 @@ services:
 
   # ================= 3. MinIO 对象存储 =================
   minio:
-    image: cgr.dev/chainguard/minio:latest
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
     container_name: labsystem-minio-prod
     restart: always
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
-    # 安全规范：生产环境绝不将 MinIO 端口暴露给宿主机
-    # ports:
-    #   - "9000:9000"
-    #   - "9001:9001"
     volumes:
       - minio-data:/data
     networks:
@@ -74,7 +65,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # 日志轮转
     logging:
       driver: "json-file"
       options:
@@ -83,7 +73,6 @@ services:
 
   # ================= 4. Spring Boot 后端 =================
   backend:
-    # 🛑【核心改造】不再本地 build，直接拉取云端镜像
     image: gthgs/labsystem:${IMAGE_TAG:-latest}
     container_name: labsystem-backend-prod
     restart: always
@@ -102,6 +91,7 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost}
       - CPOLAR_COMPATIBLE=false
+      - ADMIN_INIT_PASSWORD=${ADMIN_INIT_PASSWORD:-}
     depends_on:
       mysql:
         condition: service_healthy
@@ -112,22 +102,20 @@ services:
     networks:
       - lab-net
     healthcheck:
-      # 使用 readiness 探针，避免依赖服务抖动导致容器被频繁重启
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/actuator/health/readiness"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 30s
-    # 日志轮转
     logging:
       driver: "json-file"
       options:
-        max-size: "20m" # 后端日志可能较多，给 20m
-        max-file: "5"   # 保留 5 个文件
+        max-size: "20m"
+        max-file: "5"
 
   # ================= 4.5 Prometheus 监控采集 =================
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.51.2
     container_name: labsystem-prometheus-prod
     restart: always
     volumes:
@@ -135,7 +123,7 @@ services:
       - ./alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "9090:9090" # 建议在生产服务器上用 Nginx 代理并加密码，测试先直接暴露
+      - "127.0.0.1:9090:9090"
     networks:
       - lab-net
     depends_on:
@@ -148,14 +136,14 @@ services:
 
   # ================= 4.55 Alertmanager 告警分发 =================
   alertmanager:
-    image: prom/alertmanager:latest
+    image: prom/alertmanager:v0.27.0
     container_name: labsystem-alertmanager-prod
     restart: always
     volumes:
       - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager-data:/alertmanager
     ports:
-      - "9093:9093"
+      - "127.0.0.1:9093:9093"
     networks:
       - lab-net
     depends_on:
@@ -168,15 +156,15 @@ services:
 
   # ================= 4.6 Grafana 监控大盘 =================
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.4.2
     container_name: labsystem-grafana-prod
     restart: always
     volumes:
       - grafana-data:/var/lib/grafana
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin # 初始管理员密码，强烈建议登录后修改
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?Grafana密码必须在.env中配置}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     networks:
       - lab-net
     depends_on:
@@ -189,21 +177,18 @@ services:
 
   # ================= 5. Nginx 前端 =================
   frontend:
-    # 🛑【核心改造】直接拉取云端镜像，不再依赖本地源码
     image: gthgs/labsystem-frontend:${IMAGE_TAG:-latest}
     container_name: labsystem-frontend-prod
     restart: always
     ports:
       - "80:80"
     volumes:
-      # 将 Nginx 日志挂载到宿主机，防止容器销毁后日志丢失
       - ./logs/nginx:/var/log/nginx
     depends_on:
       backend:
         condition: service_healthy
     networks:
       - lab-net
-    # 日志轮转
     logging:
       driver: "json-file"
       options:
@@ -214,8 +199,8 @@ volumes:
   mysql-data:
   redis-data:
   minio-data:
-  prometheus-data: # 🛑【核心新增】
-  grafana-data:    # 🛑【核心新增】
+  prometheus-data:
+  grafana-data:
   alertmanager-data:
 
 networks:

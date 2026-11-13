@@ -3,17 +3,20 @@
 # ============================================================
 app:
   security:
-    # 生产环境绝对禁止通过后门登录！
+    # 生产环境禁用测试登录接口
     test-login-enabled: false
-  # 生产环境绝对禁止开启 cpolar 兼容
+  # 生产环境禁用 cpolar 内网穿透兼容模式
   cpolar-compatible: false
+  admin:
+    # 管理员首次启动时的初始密码（若不配置则随机生成并打印在日志）
+    init-password: ${ADMIN_INIT_PASSWORD:}
 
-# 生产环境关闭 Knife4j 接口文档
+# 生产环境关闭接口文档
 knife4j:
   enable: false
   production: true
 
-# 生产环境必须配置明确的跨域白名单（没有默认值，逼着必须配！）
+# 生产环境必须配置明确的跨域白名单（无默认值，必须显式配置）
 cors:
   allowed-origins: ${CORS_ORIGINS}
 
@@ -26,12 +29,12 @@ spring:
       minimum-idle: 5
       idle-timeout: 300000
 
-  # 🛑【新增】生产环境强制要求提供 Redis 密码，如果环境变量缺失将无法启动
+  # 生产环境强制要求提供 Redis 密码，缺失则无法启动
   data:
     redis:
       password: ${REDIS_PASSWORD}
 
-  # 🛑【核心新增】生产环境 Flyway 策略收紧
+  # 生产环境 Flyway 策略收紧
   flyway:
     # 生产环境绝对禁止执行 clean 命令（防止误删全库）
     clean-disabled: true
@@ -46,12 +49,12 @@ jwt:
 # ============================================================
 # 生产环境性能与安全调优
 # ============================================================
-# 1. 生产环境不打印 MyBatis 的 SQL，否则日志会爆炸且泄露隐私
+# 1. 生产环境禁用 MyBatis SQL 日志，防止日志过多及隐私泄露
 mybatis-plus:
   configuration:
     log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
 
-# 2. 生产环境把日志级别调整为 info，不要用 debug
+# 2. 生产环境日志级别调整为 info
 logging:
   level:
     root: info
@@ -64,9 +67,9 @@ management:
   endpoints:
     web:
       exposure:
-        # 🛑【核心修改】暴露 prometheus 指标
+        # 暴露 prometheus 指标
         include: health,info,prometheus
-  # 🛑【核心新增】给所有监控指标打上应用名标签
+  # 给所有监控指标打上应用名标签
   metrics:
     tags:
       application: labsystem
@@ -74,9 +77,12 @@ management:
     health:
       show-details: never
       probes:
-        enabled: true # 🛑【核心新增】开启探针
+        # 开启探针
+        enabled: true
   health:
+    # 开启存活探针
     livenessstate:
-      enabled: true # 开启存活探针
+      enabled: true
+    # 开启就绪探针
     readinessstate:
-      enabled: true # 开启就绪探针
+      enabled: true
