@@ -37,9 +37,6 @@ import static org.mockito.Mockito.when;
 
 /**
  * 排课规则的单元测试。
- *
- * <p>排课有三重冲突校验（教师 / 实验室 / 教学班）和一次时间换算，
- * 任一条漏掉都会造成真实的教学事故，这里逐条覆盖。
  */
 class TeacherSessionServiceImplTest {
 
@@ -48,6 +45,7 @@ class TeacherSessionServiceImplTest {
     private LabRoomMapper labRoomMapper;
     private ExpSessionMapper sessionMapper;
     private SysSemesterMapper semesterMapper;
+    private StudentBookingMapper bookingMapper;
     private NumberGenerator numberGenerator;
     private TeacherSessionServiceImpl service;
 
@@ -58,6 +56,7 @@ class TeacherSessionServiceImplTest {
         labRoomMapper = mock(LabRoomMapper.class);
         sessionMapper = mock(ExpSessionMapper.class);
         semesterMapper = mock(SysSemesterMapper.class);
+        bookingMapper = mock(StudentBookingMapper.class);
         numberGenerator = mock(NumberGenerator.class);
 
         service = new TeacherSessionServiceImpl(
@@ -66,7 +65,7 @@ class TeacherSessionServiceImplTest {
                 labRoomMapper,
                 sessionMapper,
                 semesterMapper,
-                mock(StudentBookingMapper.class),
+                bookingMapper,
                 mock(StudentMapper.class),
                 numberGenerator);
     }
@@ -205,7 +204,7 @@ class TeacherSessionServiceImplTest {
 
         ExpProject other = new ExpProject();
         other.setProjectNo("P999");
-        other.setClassNo("C001"); // 与当前项目同班
+        other.setClassNo("C001");
         when(projectMapper.selectById("P999")).thenReturn(other);
 
         BusinessException e = assertThrows(BusinessException.class,
@@ -233,7 +232,6 @@ class TeacherSessionServiceImplTest {
 
         assertEquals("场次安排成功！场次号为：SE2025001", msg);
 
-        // 捕获传给 Mapper 的实体，验证由后端接管生成的字段
         ArgumentCaptor<ExpSession> captor = ArgumentCaptor.forClass(ExpSession.class);
         verify(sessionMapper).insert(captor.capture());
         
@@ -241,7 +239,6 @@ class TeacherSessionServiceImplTest {
         assertEquals("T001", saved.getWorkNo());
         assertEquals("SE2025001", saved.getSessionNo());
         assertEquals(30, saved.getRemainingSeats());
-        // 第 3 周 周二 3-4 节 → 2025-09-01 + 2 周 + 1 天 = 09-16，10:00
         assertEquals(LocalDateTime.of(2025, 9, 16, 10, 0), saved.getSessionTime());
     }
 
@@ -273,10 +270,26 @@ class TeacherSessionServiceImplTest {
                 assertThrows(BusinessException.class,
                         () -> service.listSessionBookings("SE1", "T001")).getMessage());
 
-        assertEquals("非法操作！",
+        assertEquals("非法操作：您无权取消该场次！",
                 assertThrows(BusinessException.class,
                         () -> service.deleteSession("SE1", "T001")).getMessage());
 
+        verify(sessionMapper, never()).deleteById(anyString());
+    }
+
+    @Test
+    @DisplayName("场次已有学生预约时拒绝取消排课")
+    void rejectDeleteSessionWithBookings() {
+        ExpSession session = new ExpSession();
+        session.setSessionNo("SE1");
+        session.setWorkNo("T001");
+        when(sessionMapper.selectById("SE1")).thenReturn(session);
+        when(bookingMapper.selectCount(any())).thenReturn(5L);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.deleteSession("SE1", "T001"));
+
+        assertEquals("该场次已有 5 名学生预约，无法直接取消排课！", e.getMessage());
         verify(sessionMapper, never()).deleteById(anyString());
     }
 }

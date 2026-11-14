@@ -147,13 +147,33 @@ public class StudentBookingServiceImpl implements StudentBookingService {
 
         ExpSession updatedSession = sessionMapper.selectById(sessionNo);
         if (updatedSession != null) {
-            GlobalWebSocket.broadcastToRole("all", 
-                "{\"type\":\"SEAT_UPDATE\",\"sessionNo\":\"" + sessionNo + "\",\"seats\":" + updatedSession.getRemainingSeats() + "}");
+            String broadcastMsg = "{\"type\":\"SEAT_UPDATE\",\"sessionNo\":\"" + sessionNo + "\",\"seats\":" + updatedSession.getRemainingSeats() + "}";
+            // 延迟广播座位更新
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        GlobalWebSocket.broadcastToRole("all", broadcastMsg);
+                    }
+                });
+            } else {
+                GlobalWebSocket.broadcastToRole("all", broadcastMsg);
+            }
         }
 
         if (isWaitlistAutoBook) {
-            GlobalWebSocket.sendToUser(studentNo,
-                "{\"type\":\"WAITLIST_SUCCESS\",\"message\":\"您候补的实验场次已成功为您预约！\"}");
+            String notifyMsg = "{\"type\":\"WAITLIST_SUCCESS\",\"message\":\"您候补的实验场次已成功为您预约！\"}";
+            // 延迟发送候补成功通知
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        GlobalWebSocket.sendToUser(studentNo, notifyMsg);
+                    }
+                });
+            } else {
+                GlobalWebSocket.sendToUser(studentNo, notifyMsg);
+            }
         }
 
         return "预约成功！";
@@ -279,12 +299,31 @@ public class StudentBookingServiceImpl implements StudentBookingService {
 
             ExpSession updatedSession = sessionMapper.selectById(session.getSessionNo());
             if (updatedSession != null) {
-                GlobalWebSocket.broadcastToRole("all", 
-                    "{\"type\":\"SEAT_UPDATE\",\"sessionNo\":\"" + updatedSession.getSessionNo() + "\",\"seats\":" + updatedSession.getRemainingSeats() + "}");
+                String broadcastMsg = "{\"type\":\"SEAT_UPDATE\",\"sessionNo\":\"" + updatedSession.getSessionNo() + "\",\"seats\":" + updatedSession.getRemainingSeats() + "}";
+                // 延迟广播座位更新
+                if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            GlobalWebSocket.broadcastToRole("all", broadcastMsg);
+                        }
+                    });
+                } else {
+                    GlobalWebSocket.broadcastToRole("all", broadcastMsg);
+                }
             }
 
-            // 触发候补补位
-            handleWaitlist(session.getSessionNo());
+            // 核心修复：把候补补位逻辑延迟到事务提交成功之后执行
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        handleWaitlist(session.getSessionNo());
+                    }
+                });
+            } else {
+                handleWaitlist(session.getSessionNo());
+            }
         }
         return "取消预约成功！";
     }

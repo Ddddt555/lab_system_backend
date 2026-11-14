@@ -213,7 +213,17 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
     public String deleteSession(String sessionNo, String workNo) {
         ExpSession session = sessionMapper.selectById(sessionNo);
         if (session == null || !session.getWorkNo().equals(workNo)) {
-            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权取消该场次！");
+        }
+
+        // 检查是否已有学生预约（防止悬空引用）
+        Long bookingCount = bookingMapper.selectCount(
+                new QueryWrapper<StudentBooking>()
+                        .eq("session_no", sessionNo)
+                        .eq("status", 1)
+        );
+        if (bookingCount > 0) {
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该场次已有 " + bookingCount + " 名学生预约，无法直接取消排课！");
         }
 
         sessionMapper.deleteById(sessionNo);
