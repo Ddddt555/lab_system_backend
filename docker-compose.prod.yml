@@ -49,7 +49,8 @@ services:
 
   # ================= 3. MinIO 对象存储 =================
   minio:
-    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    # 使用社区固定版本镜像，避免官方拉取受限
+    image: milvusdb/minio:RELEASE.2024-12-18T13-15-44Z
     container_name: labsystem-minio-prod
     restart: always
     environment:
@@ -60,11 +61,6 @@ services:
       - minio-data:/data
     networks:
       - lab-net
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     logging:
       driver: "json-file"
       options:
@@ -98,7 +94,8 @@ services:
       redis:
         condition: service_healthy
       minio:
-        condition: service_healthy
+        # 修改为容器启动即可，不依赖其内部健康检查
+        condition: service_started
     networks:
       - lab-net
     healthcheck:

@@ -93,12 +93,14 @@ public class StudentController {
 
     // ================= 3. 获取所有实验场次 =================
 
-    @Operation(summary = "获取实验场次列表", description = "用于学生端查看当前所有开放的实验场次")
+    @Operation(summary = "获取实验场次列表", description = "用于学生端查看当前所有开放的实验场次，并返回当前学生是否有资格预约")
     @GetMapping("/session/list")
     public Result<Object> getSessionList(
+            HttpServletRequest request,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
-        return Result.success(sessionQueryService.listSessions(page, size));
+        String studentNo = (String) request.getAttribute("currentUserNo");
+        return Result.success(sessionQueryService.listSessions(studentNo, page, size));
     }
 
     // ================= 4. 取消预约 =================

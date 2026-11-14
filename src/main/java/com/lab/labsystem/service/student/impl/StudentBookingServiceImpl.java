@@ -159,6 +159,29 @@ public class StudentBookingServiceImpl implements StudentBookingService {
                 .eq("student_no", studentNo).eq("session_no", sessionNo).eq("status", 1));
         if (booked > 0) throw BusinessException.of(ErrorCode.BAD_REQUEST, "您已预约该场次，无需排队！");
 
+        // ================= 入队前置校验 =================
+        ExpProject project = projectMapper.selectById(session.getProjectNo());
+        if (project != null && project.getClassNo() != null) {
+            QueryWrapper<StudentTeachClass> scQw = new QueryWrapper<StudentTeachClass>()
+                    .eq("student_no", studentNo).eq("class_no", project.getClassNo());
+            if (studentTeachClassMapper.selectCount(scQw) == 0) {
+                throw BusinessException.of(ErrorCode.BAD_REQUEST, "你尚未加入该实验所属的教学班，无法加入候补！");
+            }
+        }
+
+        List<StudentBooking> myBookings = bookingMapper.selectList(
+                new QueryWrapper<StudentBooking>().eq("student_no", studentNo).eq("status", 1));
+        for (StudentBooking b : myBookings) {
+            ExpSession existingSession = sessionMapper.selectById(b.getSessionNo());
+            if (existingSession != null && existingSession.getSemester().equals(session.getSemester()) &&
+                existingSession.getWeekNum().equals(session.getWeekNum()) &&
+                existingSession.getDayOfWeek().equals(session.getDayOfWeek()) &&
+                existingSession.getPeriod().equals(session.getPeriod())) {
+                throw BusinessException.of(ErrorCode.BAD_REQUEST, "时间冲突！你已预约该时段的实验课，无法加入候补。");
+            }
+        }
+        // ================================================
+
         String userKey = WAITLIST_USER_PREFIX + sessionNo + ":" + studentNo;
         
         // 使用 setIfAbsent 代替 hasKey + set，保证并发防重的原子性
@@ -250,29 +273,50 @@ public class StudentBookingServiceImpl implements StudentBookingService {
     private void handleWaitlist(String sessionNo) {
         String queueKey = WAITLIST_QUEUE_PREFIX + sessionNo;
         
-        while (true) {
+        Long queueSize = stringRedisTemplate.opsForList().size(queueKey);
+        if (queueSize == null || queueSize == 0) {
+            return;
+        }
+
+        int maxAttempts = queueSize.intValue();
+
+        for (int i = 0; i < maxAttempts; i++) {
             String nextStudentNo = stringRedisTemplate.opsForList().leftPop(queueKey);
             if (nextStudentNo == null) {
                 break; 
             }
 
             String userKey = WAITLIST_USER_PREFIX + sessionNo + ":" + nextStudentNo;
-            stringRedisTemplate.delete(userKey);
 
             try {
+                // 尝试补位
                 doBookSession(nextStudentNo, sessionNo, true);
                 
-                // 补位成功后，更新 MySQL 里的状态为 BOOKED，方便核对
+                // 补位成功：删除防重标记，更新状态为 BOOKED，结束循环
+                stringRedisTemplate.delete(userKey);
                 UpdateWrapper<WaitlistRecord> updateWrapper = new UpdateWrapper<>();
                 updateWrapper.eq("session_no", sessionNo)
                              .eq("student_no", nextStudentNo)
                              .set("status", "BOOKED");
                 waitlistRecordMapper.update(null, updateWrapper);
-                
                 break; 
+
+            } catch (BusinessException e) {
+                // 业务异常：说明该学生在此期间失去了资格（如自己退课了）
+                // 直接淘汰，不再放回队列，避免阻塞后续排队的学生
+                log.warn("候补补位失败(业务拒绝): {}，原因: {}。将其移出队列", nextStudentNo, e.getMessage());
+                
+                stringRedisTemplate.delete(userKey);
+                UpdateWrapper<WaitlistRecord> failWrapper = new UpdateWrapper<>();
+                failWrapper.eq("session_no", sessionNo)
+                           .eq("student_no", nextStudentNo)
+                           .set("status", "FAILED");
+                waitlistRecordMapper.update(null, failWrapper);
+
             } catch (Exception e) {
-                log.warn("候补自动预约失败: {}，原因: {}", nextStudentNo, e.getMessage());
-                // 如果失败，可以考虑更新 MySQL 状态为 FAILED，或者直接跳过
+                // 系统异常（如数据库死锁、网络超时），学生本身是合规的，放回队尾重试
+                log.error("候补补位失败(系统异常): {}，原因: {}。将其移至队尾重试", nextStudentNo, e.getMessage());
+                stringRedisTemplate.opsForList().rightPush(queueKey, nextStudentNo);
             }
         }
     }

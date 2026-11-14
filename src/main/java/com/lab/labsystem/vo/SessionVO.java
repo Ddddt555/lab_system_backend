@@ -26,13 +26,14 @@ public class SessionVO {
     private Double score;
     private String comment;
 
-    // ⚠️ 补上这两个成绩管理用的字段
     private String studentNo; 
     private Boolean isGraded; 
-    private Double reportScore; // 报告均分
-    private Double totalScore;  // 总评成绩
+    private Double reportScore;
+    private Double totalScore;
 
-    // --- 手动补齐所有 get 和 set 方法 ---
+    // 新增：当前学生是否有资格加入候补
+    private Boolean isEligible;
+
     public String getSessionNo() { return sessionNo; }
     public void setSessionNo(String sessionNo) { this.sessionNo = sessionNo; }
     public String getProjectNo() { return projectNo; }
@@ -72,7 +73,6 @@ public class SessionVO {
     public String getComment() { return comment; }
     public void setComment(String comment) { this.comment = comment; }
 
-    // ⚠️ 最新加上的 get/set
     public String getStudentNo() { return studentNo; }
     public void setStudentNo(String studentNo) { this.studentNo = studentNo; }
     
@@ -84,4 +84,7 @@ public class SessionVO {
     
     public Double getTotalScore() { return totalScore; }
     public void setTotalScore(Double totalScore) { this.totalScore = totalScore; }
+
+    public Boolean getIsEligible() { return isEligible; }
+    public void setIsEligible(Boolean isEligible) { this.isEligible = isEligible; }
 }
