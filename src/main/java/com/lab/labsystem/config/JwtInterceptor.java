@@ -69,6 +69,15 @@ public class JwtInterceptor implements HandlerInterceptor {
                     response.setStatus(401);
                     return false;
                 }
+
+                // 限制设备 ID 的长度和字符集，防止注入或超长数据引发 DoS / Redis Key 污染
+                // 允许字母、数字、下划线、短横线，长度限制在 16 到 64 位之间
+                if (!requestDeviceId.matches("^[a-zA-Z0-9_-]{16,64}$")) {
+                    securityLog.warn("【非法访问】X-Device-Id 格式非法。URI: {}, 设备信息: {}, IP: {}", 
+                            requestUri, requestDeviceId, clientIp);
+                    response.setStatus(400);
+                    return false;
+                }
                 
                 if (!tokenDeviceId.equals(requestDeviceId)) {
                     securityLog.warn("【设备异常】Token 设备指纹不匹配。URI: {}, Token设备: {}, 请求设备: {}, IP: {}", 

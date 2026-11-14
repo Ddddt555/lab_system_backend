@@ -85,7 +85,7 @@ class AuthServiceImplTest {
         dto.setPassword(password);
         dto.setCaptchaKey(captchaKey);
         dto.setCaptchaCode(captchaCode);
-        dto.setDeviceId("test-device");
+        dto.setDeviceId("test-device-1234567890");
         return dto;
     }
 

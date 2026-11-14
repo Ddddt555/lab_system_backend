@@ -54,7 +54,7 @@ class LoginControllerTest {
                   "password": "password",
                   "captchaKey": "key",
                   "captchaCode": "code",
-                  "deviceId": "test-device"
+                  "deviceId": "test-device-1234567890"
                 }
                 """;
 
@@ -81,7 +81,7 @@ class LoginControllerTest {
                   "password": "password",
                   "captchaKey": "mock-key",
                   "captchaCode": "mock-code",
-                  "deviceId": "test-device"
+                  "deviceId": "test-device-1234567890"
                 }
                 """;
 

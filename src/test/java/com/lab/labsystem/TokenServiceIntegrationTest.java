@@ -48,7 +48,7 @@ public class TokenServiceIntegrationTest {
 
     private final String userNo = "TestUser";
     private final String role = "student";
-    private final String deviceId = "TestDevice";
+    private final String deviceId = "TestDevice1234567890";
 
     @BeforeAll
     void cleanUp() {
@@ -83,7 +83,6 @@ public class TokenServiceIntegrationTest {
         CountDownLatch readyLatch = new CountDownLatch(threads);
         CountDownLatch startLatch = new CountDownLatch(1);
         
-        // 使用线程安全的集合收集每个线程的返回结果
         List<Map<String, Object>> results = Collections.synchronizedList(new ArrayList<>());
         AtomicInteger failCount = new AtomicInteger(0);
 
@@ -104,15 +103,12 @@ public class TokenServiceIntegrationTest {
         startLatch.countDown();
         executor.shutdown();
         
-        // 断言线程池在规定时间内正常关闭
         boolean terminated = executor.awaitTermination(5, TimeUnit.SECONDS);
         assertTrue(terminated, "线程池未能在 5 秒内正常关闭，可能存在死锁或阻塞");
 
-        // 断言所有请求都成功
         assertEquals(0, failCount.get(), "真并发刷新不应出现异常");
         assertEquals(threads, results.size(), "成功返回的结果数量应与并发数一致");
 
-        // 断言所有线程拿到的 Token 结果是完全一致的
         Map<String, Object> firstResult = results.get(0);
         String expectedAccessToken = (String) firstResult.get("token");
         String expectedRefreshToken = (String) firstResult.get("refreshToken");
@@ -122,11 +118,9 @@ public class TokenServiceIntegrationTest {
             assertEquals(expectedRefreshToken, result.get("refreshToken"), "并发刷新得到的 RefreshToken 应完全一致");
         }
 
-        // 断言 Redis 里最终存储的 RefreshToken 与返回值一致
         String finalTokenInRedis = realRedisTemplate.opsForValue().get("refresh_token:" + hashTag);
         assertEquals(expectedRefreshToken, finalTokenInRedis, "Redis 中最终的 RefreshToken 必须与返回给客户端的一致");
         
-        // 断言幂等缓存 Hash 确实被写入了
         assertTrue(realRedisTemplate.hasKey("refresh:idem:" + hashTag));
     }
 
@@ -163,7 +157,6 @@ public class TokenServiceIntegrationTest {
     void testReplayAttackRevokesAllSessions() {
         String hashTag = "{" + userNo + ":" + deviceId + "}";
         
-        // 清理环境，重新生成一对初始 Token
         realRedisTemplate.delete(Arrays.asList(
                 "refresh_token:" + hashTag,
                 "refresh:idem:" + hashTag
@@ -171,20 +164,15 @@ public class TokenServiceIntegrationTest {
         Map<String, Object> initialTokens = tokenService.createTokenPair(userNo, role, deviceId);
         String oldRefreshToken = (String) initialTokens.get("refreshToken");
 
-        // 用户正常刷新，拿到了第二对 Token
         Map<String, Object> latestTokens = tokenService.refreshToken(oldRefreshToken, deviceId);
         String currentValidRefreshToken = (String) latestTokens.get("refreshToken");
         assertEquals(currentValidRefreshToken, realRedisTemplate.opsForValue().get("refresh_token:" + hashTag));
 
-        // 手动清除幂等缓存（模拟 5 分钟时间窗口已过）
-        // 如果不清理，此时用旧 token 会命中缓存返回成功，不会触发重放拦截
         realRedisTemplate.delete("refresh:idem:" + hashTag);
 
-        // 攻击者（或延迟的请求）拿着已被替换的旧 Token 来重放
         assertThrows(com.lab.labsystem.common.BusinessException.class, 
                 () -> tokenService.refreshToken(oldRefreshToken, deviceId));
 
-        // 核心断言：零容忍策略生效！不仅拒绝重放，当前最新的有效 Token 也一并被销毁
         assertFalse(realRedisTemplate.hasKey("refresh_token:" + hashTag), "重放攻击触发后，当前有效的 Refresh Token 必须被强制销毁");
         assertFalse(realRedisTemplate.hasKey("refresh:idem:" + hashTag), "重放攻击触发后，幂等缓存必须被强制销毁");
     }

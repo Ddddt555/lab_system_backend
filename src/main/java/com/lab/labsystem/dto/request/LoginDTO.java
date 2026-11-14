@@ -1,6 +1,7 @@
 package com.lab.labsystem.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 /**
@@ -23,5 +24,6 @@ public class LoginDTO {
 
     /** 浏览器设备指纹，用于 Token 绑定 */
     @NotBlank(message = "设备标识不能为空")
+    @Pattern(regexp = "^[a-zA-Z0-9_-]{16,64}$", message = "设备标识格式非法")
     private String deviceId;
 }

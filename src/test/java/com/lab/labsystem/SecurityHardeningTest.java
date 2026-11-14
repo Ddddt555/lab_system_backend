@@ -39,7 +39,7 @@ public class SecurityHardeningTest {
     private String realClassNo;
     private String studentToken;
     private String teacherToken;
-    private final String TEST_DEVICE_ID = "test-device";
+    private final String TEST_DEVICE_ID = "test-device-1234567890";
 
     @BeforeAll
     void init() {
@@ -118,7 +118,6 @@ public class SecurityHardeningTest {
         ResponseEntity<Result> response = restTemplate.postForEntity(url, entity, Result.class);
         Result result = response.getBody();
 
-        // RoleAuthAspect 拦截后直接返回 Result 对象而不是抛异常，因此 HTTP 状态仍为 200
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(result);
         assertEquals(403, result.getCode(), "越权校验失败，学生竟然能发通知！");
@@ -136,7 +135,6 @@ public class SecurityHardeningTest {
         ResponseEntity<Result> response = restTemplate.postForEntity(url, entity, Result.class);
         Result result = response.getBody();
 
-        // 预约不存在抛出 BusinessException(DATA_NOT_FOUND)，映射为真实的 HTTP 404
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode(), "业务异常(资源不存在)应返回 HTTP 404");
         
         assertNotNull(result);
@@ -191,7 +189,6 @@ public class SecurityHardeningTest {
         String getUrlApi = "/api/report/download-url/" + otherFileName;
         ResponseEntity<Result> linkResponse = restTemplate.exchange(getUrlApi, HttpMethod.GET, entity, Result.class);
         
-        // 此接口 Controller 直接返回了 Result.error，未抛异常，因此 HTTP 状态为 200
         assertEquals(HttpStatus.OK, linkResponse.getStatusCode());
         assertEquals(400, linkResponse.getBody().getCode());
         assertEquals("没有权限！", linkResponse.getBody().getMsg());
@@ -199,7 +196,6 @@ public class SecurityHardeningTest {
         String downloadApi = "/api/report/download/" + otherFileName;
         ResponseEntity<byte[]> streamResponse = restTemplate.exchange(downloadApi, HttpMethod.GET, entity, byte[].class);
         
-        // 底层方法直接写入真实的 403 状态码
         assertEquals(403, streamResponse.getStatusCode().value(), "越权直接下载文件流未返回 403！");
     }
 
@@ -260,7 +256,6 @@ public class SecurityHardeningTest {
         String logoutUrl = "/api/logout";
         restTemplate.postForEntity(logoutUrl, entity, Result.class);
 
-        // 拦截器直接设置了真实的 401
         ResponseEntity<Result> afterLogout = restTemplate.exchange(checkUrl, HttpMethod.GET, entity, Result.class);
         assertEquals(401, afterLogout.getStatusCode().value(), "登出后，旧 Access Token 应立即失效返回 401！");
     }

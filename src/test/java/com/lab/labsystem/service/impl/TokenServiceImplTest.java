@@ -33,7 +33,7 @@ import com.lab.labsystem.service.auth.impl.TokenServiceImpl;
 
 class TokenServiceImplTest {
 
-    private static final String DEVICE_ID = "test-device";
+    private static final String DEVICE_ID = "test-device-1234567890";
     private StringRedisTemplate redis;
     private ValueOperations<String, String> ops;
     private ZSetOperations<String, String> zSetOps;
@@ -71,7 +71,7 @@ class TokenServiceImplTest {
         assertNotNull(tokens.get("token"));
         assertNotNull(tokens.get("refreshToken"));
 
-        verify(ops).set(eq("refresh_token:{S001:test-device}"), anyString(), any());
+        verify(ops).set(eq("refresh_token:{S001:" + DEVICE_ID + "}"), anyString(), any());
         verify(zSetOps).add(eq("user:devices:S001"), eq(DEVICE_ID), any(Double.class));
     }
 
@@ -130,7 +130,6 @@ class TokenServiceImplTest {
     void refreshRejectsMismatch() {
         String refreshToken = JwtUtil.generateRefreshToken("S001", "student", DEVICE_ID);
 
-        // Mock 刷新脚本返回 FAIL
         when(redis.execute(
                 ArgumentMatchers.<DefaultRedisScript<String>>any(),
                 anyList(),
@@ -148,13 +147,10 @@ class TokenServiceImplTest {
 
         assertEquals("安全警告：检测到异常刷新操作，已被强制下线，请重新登录！", e.getMessage());
         
-        // 验证记录审计日志
         verify(logMapper).insert(any(SysLog.class));
         
-        // 验证执行了强制下线的 Revoke 脚本（只有 KEYS，没有 ARGV，参数只传两个即可）
         verify(redis).execute(ArgumentMatchers.<DefaultRedisScript<Long>>any(), anyList());
         
-        // 验证移除了设备记录
         verify(zSetOps).remove("user:devices:S001", DEVICE_ID);
     }
 
@@ -166,7 +162,6 @@ class TokenServiceImplTest {
 
         service.revokeTokens(tokenWithBearer);
 
-        // 登出脚本只有 KEYS，没有 ARGV
         verify(redis).execute(any(DefaultRedisScript.class), anyList());
         verify(zSetOps).remove("user:devices:S001", DEVICE_ID);
     }

@@ -39,7 +39,7 @@ class AuthFacadeImplTest {
         HttpServletRequest request = mock(HttpServletRequest.class);
         LoginDTO dto = new LoginDTO();
         dto.setUsername("S001");
-        dto.setDeviceId("test-device");
+        dto.setDeviceId("test-device-1234567890");
 
         // Mock 认证层
         LoginUserVO userVO = new LoginUserVO("S001", "张三", "student");
@@ -50,7 +50,7 @@ class AuthFacadeImplTest {
         Map<String, Object> tokens = new HashMap<>();
         tokens.put("token", "mock-access-token");
         tokens.put("refreshToken", "mock-refresh-token");
-        when(tokenService.createTokenPair("S001", "student", "test-device")).thenReturn(tokens);
+        when(tokenService.createTokenPair("S001", "student", "test-device-1234567890")).thenReturn(tokens);
 
         // 执行
         Map<String, Object> result = facade.loginStudent(dto, request);
@@ -63,6 +63,6 @@ class AuthFacadeImplTest {
         
         // 验证是否确实调用了两次
         verify(authService).verifyStudent(dto, request);
-        verify(tokenService).createTokenPair("S001", "student", "test-device");
+        verify(tokenService).createTokenPair("S001", "student", "test-device-1234567890");
     }
 }
