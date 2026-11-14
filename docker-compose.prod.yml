@@ -49,7 +49,6 @@ services:
 
   # ================= 3. MinIO 对象存储 =================
   minio:
-    # 使用社区固定版本镜像，避免官方拉取受限
     image: milvusdb/minio:RELEASE.2024-12-18T13-15-44Z
     container_name: labsystem-minio-prod
     restart: always
@@ -94,7 +93,6 @@ services:
       redis:
         condition: service_healthy
       minio:
-        # 修改为容器启动即可，不依赖其内部健康检查
         condition: service_started
     networks:
       - lab-net
@@ -194,11 +192,17 @@ services:
 
 volumes:
   mysql-data:
+    name: labsystem_mysql_data_prod
   redis-data:
+    name: labsystem_redis_data_prod
   minio-data:
+    name: labsystem_minio_data_prod
   prometheus-data:
+    name: labsystem_prometheus_data_prod
   grafana-data:
+    name: labsystem_grafana_data_prod
   alertmanager-data:
+    name: labsystem_alertmanager_data_prod
 
 networks:
   lab-net:

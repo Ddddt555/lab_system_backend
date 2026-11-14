@@ -69,7 +69,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-dev}
+      # 强制指定为 dev 环境
+      - SPRING_PROFILES_ACTIVE=dev
       # 数据库连接配置
       - DB_HOST=mysql
       - DB_PORT=3306
@@ -100,8 +101,11 @@ services:
 
 volumes:
   mysql-data:
+    name: labsystem_mysql_data_dev
   redis-data:
+    name: labsystem_redis_data_dev
   minio-data:
+    name: labsystem_minio_data_dev
 
 networks:
   lab-net:
