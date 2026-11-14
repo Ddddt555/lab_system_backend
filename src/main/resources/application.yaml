@@ -107,6 +107,10 @@ management:
       show-details: always
       probes:
         enabled: true
+      # 显式将 MinIO 纳入 readiness 检查组
+      group:
+        readiness:
+          include: readinessState, db, redis, minio
   health:
     livenessstate:
       enabled: true

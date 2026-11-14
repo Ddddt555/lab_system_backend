@@ -1,5 +1,3 @@
-cd /g/DevEnv/Project/labsystem/labsystem/scripts
-cat > backup.sh <<'EOF'
 #!/bin/bash
 set -e
 
@@ -39,7 +37,6 @@ find "$BACKUP_DIR" -name "mysql_*.sql" -type f -mtime +7 -exec rm {} \;
 find "$BACKUP_DIR" -name "minio_*.tar.gz" -type f -mtime +7 -exec rm {} \;
 
 echo "🎉 [$(date +"%Y-%m-%d %H:%M:%S")] 所有备份任务执行完毕！"
-EOF
 
 # 赋权
 chmod +x backup.sh

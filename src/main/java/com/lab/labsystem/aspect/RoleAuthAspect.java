@@ -1,8 +1,8 @@
 package com.lab.labsystem.aspect;
 
 import com.lab.labsystem.annotation.RequireRole;
+import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.ErrorCode;
-import com.lab.labsystem.common.Result;
 import jakarta.servlet.http.HttpServletRequest;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -35,7 +35,7 @@ public class RoleAuthAspect {
         String currentUserNo = (String) request.getAttribute("currentUserNo");
 
         if (currentRole == null) {
-            return Result.error(ErrorCode.UNAUTHORIZED);
+            throw BusinessException.of(ErrorCode.UNAUTHORIZED);
         }
 
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
@@ -59,7 +59,8 @@ public class RoleAuthAspect {
                         request.getRequestURI(), 
                         clientIp);
                         
-                return Result.error(ErrorCode.FORBIDDEN.getCode(), "非法操作：您无权执行此操作！");
+                // 抛出业务异常，交由全局异常处理器转换为真实的 403 状态码
+                throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您无权执行此操作！");
             }
         }
 

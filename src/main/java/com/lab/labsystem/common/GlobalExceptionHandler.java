@@ -48,6 +48,8 @@ public class GlobalExceptionHandler {
             httpStatus = HttpStatus.FORBIDDEN; // 403
         } else if (e.getCode() == 404 || e.getCode() == 40005) {
             httpStatus = HttpStatus.NOT_FOUND; // 404
+        } else if (e.getCode() == 429) {
+            httpStatus = HttpStatus.TOO_MANY_REQUESTS; // 429
         } else if (e.getCode() >= 500) {
             httpStatus = HttpStatus.INTERNAL_SERVER_ERROR; // 500
         }

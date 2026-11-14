@@ -62,18 +62,35 @@ public class StudentBookingServiceImpl implements StudentBookingService {
         RLock lock = redissonClient.getLock(lockKey);
 
         boolean isLocked = false;
+        boolean isSynchronizationRegistered = false;
+
         try {
             isLocked = lock.tryLock(0, -1, TimeUnit.SECONDS);
             if (!isLocked) {
                 throw BusinessException.of(ErrorCode.CONCURRENT_CONFLICT, "您正在预约中，请勿频繁点击！");
             }
-            
+
+            // 只有在真实的 Spring 事务上下文中，才注册事务同步器
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (lock.isHeldByCurrentThread()) {
+                            lock.unlock();
+                        }
+                    }
+                });
+                isSynchronizationRegistered = true;
+            }
+
             return doBookSession(studentNo, sessionNo, false);
+
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw BusinessException.of(ErrorCode.SYSTEM_ERROR, "系统繁忙，请稍后重试！");
         } finally {
-            if (isLocked && lock.isHeldByCurrentThread()) {
+            // 兜底释放：如果没有注册事务同步器（比如单元测试），或者抢锁后发生意外，直接在这里释放
+            if (isLocked && !isSynchronizationRegistered && lock.isHeldByCurrentThread()) {
                 lock.unlock();
             }
         }
@@ -200,13 +217,13 @@ public class StudentBookingServiceImpl implements StudentBookingService {
             record.setStatus("WAITING");
             waitlistRecordMapper.insert(record);
         } catch (Exception e) {
-            // 如果数据库写入失败（比如唯一键冲突），把刚才在 Redis 占的坑释放掉，保持数据一致
+            // 如果数据库写入失败，把刚才在 Redis 占的坑释放掉，保持数据一致
             stringRedisTemplate.delete(userKey);
             throw e;
         }
 
-        // 注册事务同步器，只有在 MySQL 事务成功 Commit 之后，才去写 Redis 队列
-        // 避免 MySQL 回滚导致 Redis 残留幽灵数据
+        // 注册事务同步器
+        // 成功提交时把用户写入 Redis 队列；如果事务回滚，则清理 Redis 占位标记
         TransactionSynchronizationManager.registerSynchronization(
             new TransactionSynchronization() {
                 @Override
@@ -215,9 +232,17 @@ public class StudentBookingServiceImpl implements StudentBookingService {
                         String queueKey = WAITLIST_QUEUE_PREFIX + sessionNo;
                         stringRedisTemplate.opsForList().rightPush(queueKey, studentNo);
                     } catch (Exception e) {
-                        // 如果这里写 Redis 失败，数据库已经提交。
-                        // 依赖 WaitlistReconcileTask 定时对账任务自动补偿
+                        // 如果写 Redis 失败，数据库已经提交。依赖 WaitlistReconcileTask 定时对账任务自动补偿
                         log.error("加入候补队列写入 Redis 失败，等待定时任务补偿", e);
+                    }
+                }
+
+                @Override
+                public void afterCompletion(int status) {
+                    // 核心修复：如果外层事务发生回滚，必须清除 Redis 中的防重标记，防止用户被锁死
+                    if (status == STATUS_ROLLED_BACK) {
+                        stringRedisTemplate.delete(userKey);
+                        log.warn("候补加入事务回滚，已清理 Redis 占位标记: {}", userKey);
                     }
                 }
             }

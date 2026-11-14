@@ -22,7 +22,13 @@ public class MinioHealthIndicator implements HealthIndicator {
     public Health health() {
         try {
             // 发起一次轻量级请求，检查桶是否存在及网络连通性
-            minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
+            boolean exists = minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
+            if (!exists) {
+                return Health.down()
+                        .withDetail("MinIO", "连接正常，但存储桶不存在")
+                        .withDetail("bucket", bucketName)
+                        .build();
+            }
             return Health.up().withDetail("MinIO", "连接正常").build();
         } catch (Exception e) {
             // 连不上则返回 DOWN，促使 /actuator/health/readiness 返回 503

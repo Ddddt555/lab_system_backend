@@ -118,7 +118,9 @@ public class SecurityHardeningTest {
         ResponseEntity<Result> response = restTemplate.postForEntity(url, entity, Result.class);
         Result result = response.getBody();
 
-        assertEquals(HttpStatus.OK, response.getStatusCode());
+        // AOP 抛出异常后由全局异常处理器接管，返回真实的 HTTP 403
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode(), "越权应返回真实的 HTTP 403");
+        
         assertNotNull(result);
         assertEquals(403, result.getCode(), "越权校验失败，学生竟然能发通知！");
         assertTrue(result.getMsg().contains("无权"));
@@ -135,6 +137,7 @@ public class SecurityHardeningTest {
         ResponseEntity<Result> response = restTemplate.postForEntity(url, entity, Result.class);
         Result result = response.getBody();
 
+        // 业务异常(DATA_NOT_FOUND)映射为 HTTP 404
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode(), "业务异常(资源不存在)应返回 HTTP 404");
         
         assertNotNull(result);
