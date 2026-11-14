@@ -52,7 +52,7 @@ public class AuthFacadeImpl implements AuthFacade {
     @Override
     public Map<String, Object> testLogin(String username, String role, HttpServletRequest request) {
         LoginUserVO userVO = authService.verifyTestLogin(username, role, request);
-        Map<String, Object> tokens = tokenService.createTokenPair(userVO.getUserNo(), role, "test-device");
+        Map<String, Object> tokens = tokenService.createTokenPair(userVO.getUserNo(), role, "test-device-1234567890");
         return assembleResult(userVO, tokens);
     }
 
