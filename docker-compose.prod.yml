@@ -60,6 +60,12 @@ services:
       - minio-data:/data
     networks:
       - lab-net
+    healthcheck:
+      test: ["CMD-SHELL", "mc alias set health http://127.0.0.1:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD > /dev/null && mc ready health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     logging:
       driver: "json-file"
       options:
@@ -93,7 +99,7 @@ services:
       redis:
         condition: service_healthy
       minio:
-        condition: service_started
+        condition: service_healthy
     networks:
       - lab-net
     healthcheck:

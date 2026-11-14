@@ -26,26 +26,43 @@ public class MinioService {
     private String bucketName;
 
     /**
-     * 【核心修复】系统启动时自动检查并创建 Bucket
-     * 彻底解决 NoSuchBucket 报错，保证全新部署开箱即用
+     * 系统启动时自动检查并创建 Bucket
      */
     @PostConstruct
     public void init() {
         try {
-            boolean found = minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
-            if (!found) {
-                minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
-                log.info("✅ MinIO 存储桶 [{}] 初始化成功！", bucketName);
-            } else {
-                log.info("✅ MinIO 存储桶 [{}] 已存在，无需创建。", bucketName);
-            }
+            ensureBucketExists();
+            log.info("MinIO 存储桶 [{}] 初始化成功！", bucketName);
         } catch (Exception e) {
-            log.error("❌ MinIO 存储桶初始化失败", e);
+            log.error("MinIO 存储桶初始化失败，系统可能无法正常提供文件服务", e);
         }
     }
 
-    /** 上传文件 */
+    /**
+     * 确保存储桶存在，幂等操作
+     */
+    private void ensureBucketExists() throws Exception {
+        boolean found = minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
+        if (!found) {
+            try {
+                minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
+                log.info("自动创建 MinIO 存储桶: {}", bucketName);
+            } catch (Exception e) {
+                // 处理并发创建冲突
+                if (!e.getMessage().contains("BucketAlreadyOwnedByYou") && !e.getMessage().contains("BucketAlreadyExists")) {
+                    throw e;
+                }
+            }
+        }
+    }
+
+    /**
+     * 上传文件
+     */
     public String upload(MultipartFile file, String objectName) throws Exception {
+        // 兜底：每次上传前检查一次，防止启动时 MinIO 没起导致桶没建
+        ensureBucketExists();
+        
         try (InputStream in = file.getInputStream()) {
             minioClient.putObject(
                 PutObjectArgs.builder()
@@ -83,7 +100,7 @@ public class MinioService {
         );
     }
 
-    /** ⚠️ 删除文件（用于失败补偿清理孤儿文件） */
+    /** 删除文件（用于失败补偿清理孤儿文件） */
     public void remove(String objectName) {
         try {
             minioClient.removeObject(
@@ -107,8 +124,8 @@ public class MinioService {
         );
     }
 
-    /** 
-     * 【新增：获取 MinIO 所有文件列表】
+    /**
+     * 获取 MinIO 所有文件列表
      * 用于定时任务扫描并清理孤儿文件（有文件但数据库无记录）
      */
     public List<String> listAllFiles() throws Exception {
@@ -123,7 +140,7 @@ public class MinioService {
     }
     
     /**
-     * 【新增】获取文件的最后修改时间（用于防误删正在上传的文件）
+     * 获取文件的最后修改时间（用于防误删正在上传的文件）
      */
     public java.time.LocalDateTime getLastModifiedTime(String objectName) throws Exception {
         io.minio.StatObjectResponse stat = minioClient.statObject(
