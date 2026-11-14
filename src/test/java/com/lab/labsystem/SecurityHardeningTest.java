@@ -118,7 +118,7 @@ public class SecurityHardeningTest {
         ResponseEntity<Result> response = restTemplate.postForEntity(url, entity, Result.class);
         Result result = response.getBody();
 
-        // 由于 RoleAuthAspect 拦截后直接返回 Result 对象而不是抛异常，所以 HTTP 依然是 200
+        // RoleAuthAspect 拦截后直接返回 Result 对象而不是抛异常，因此 HTTP 状态仍为 200
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(result);
         assertEquals(403, result.getCode(), "越权校验失败，学生竟然能发通知！");
@@ -136,8 +136,8 @@ public class SecurityHardeningTest {
         ResponseEntity<Result> response = restTemplate.postForEntity(url, entity, Result.class);
         Result result = response.getBody();
 
-        // 触发 BusinessException，GlobalExceptionHandler 现在返回真实的 400
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode(), "业务异常应返回 HTTP 400");
+        // 预约不存在抛出 BusinessException(DATA_NOT_FOUND)，映射为真实的 HTTP 404
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode(), "业务异常(资源不存在)应返回 HTTP 404");
         
         assertNotNull(result);
         assertFalse(result.getMsg().contains("java."), "异常脱敏失败，暴露了底层 Java 类名！");
@@ -191,7 +191,7 @@ public class SecurityHardeningTest {
         String getUrlApi = "/api/report/download-url/" + otherFileName;
         ResponseEntity<Result> linkResponse = restTemplate.exchange(getUrlApi, HttpMethod.GET, entity, Result.class);
         
-        // 此接口 Controller 直接返回了 Result.error，未抛异常，所以 HTTP 是 200
+        // 此接口 Controller 直接返回了 Result.error，未抛异常，因此 HTTP 状态为 200
         assertEquals(HttpStatus.OK, linkResponse.getStatusCode());
         assertEquals(400, linkResponse.getBody().getCode());
         assertEquals("没有权限！", linkResponse.getBody().getMsg());
@@ -199,7 +199,7 @@ public class SecurityHardeningTest {
         String downloadApi = "/api/report/download/" + otherFileName;
         ResponseEntity<byte[]> streamResponse = restTemplate.exchange(downloadApi, HttpMethod.GET, entity, byte[].class);
         
-        // streamFromMinio 直接写入了真实的 403
+        // 底层方法直接写入真实的 403 状态码
         assertEquals(403, streamResponse.getStatusCode().value(), "越权直接下载文件流未返回 403！");
     }
 
