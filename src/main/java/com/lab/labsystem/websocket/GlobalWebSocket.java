@@ -89,7 +89,7 @@ public class GlobalWebSocket implements MessageListener {
     }
 
     // =========================================================
-    // 🛑【核心改造】发往 Redis 频道
+    // 发往 Redis 频道
     // =========================================================
     public static void broadcastToRole(String role, String message) {
         if (stringRedisTemplate != null) {
@@ -98,17 +98,20 @@ public class GlobalWebSocket implements MessageListener {
         }
     }
 
-    public static int sendToUser(String userNo, String message) {
+    /**
+     * 发送消息给指定用户。
+     * 注意：本方法仅代表消息已成功投递到 Redis 频道，
+     * 无法确认目标用户当前是否在线（可能存在多实例部署的情况）。
+     */
+    public static void sendToUser(String userNo, String message) {
         if (stringRedisTemplate != null) {
             // 格式: USER:userNo:message
             stringRedisTemplate.convertAndSend(RedisPubSubConfig.GLOBAL_CHANNEL, "USER:" + userNo + ":" + message);
-            return 1; // 统一返回 1（已投递到 Redis），让上层逻辑不报错
         }
-        return 0;
     }
 
     // =========================================================
-    // 🛑【核心改造】监听 Redis 消息，推给本地用户
+    // 监听 Redis 消息，推给本地用户
     // =========================================================
     @Override
     public void onMessage(Message message, byte[] pattern) {

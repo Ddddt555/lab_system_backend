@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @Slf4j
@@ -27,13 +28,19 @@ public class GlobalExceptionHandler {
         return "dev".equalsIgnoreCase(activeProfile) || "test".equalsIgnoreCase(activeProfile);
     }
 
+    // 专门处理 ResponseStatusException，保留其原本的 HTTP 状态码
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Result<String>> handleResponseStatusException(ResponseStatusException e) {
+        log.warn("请求状态异常: {}", e.getMessage());
+        return ResponseEntity.status(e.getStatusCode())
+                .body(Result.error(e.getStatusCode().value(), e.getReason()));
+    }
+
     // 1. 处理自定义的业务异常（预期内的错误）
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Result<String>> handleBusinessException(BusinessException e) {
-        // 业务异常不需要打印堆栈，只记录 warn 即可
         log.warn("业务逻辑异常: [{}] {}", e.getCode(), e.getMessage());
         
-        // 根据业务自定义 code 映射真实的 HTTP 状态码
         HttpStatus httpStatus = HttpStatus.BAD_REQUEST; // 默认 400
         if (e.getCode() == 401 || e.getCode() == 40101) {
             httpStatus = HttpStatus.UNAUTHORIZED; // 401
@@ -118,7 +125,7 @@ public class GlobalExceptionHandler {
                 .body(Result.error(ErrorCode.BAD_REQUEST.getCode(), "上传失败：文件大小超出了系统允许的上限（单文件最大 50MB）！"));
     }
 
-    // 9. 处理请求方法不支持异常（比如用 GET 请求 POST 接口）
+    // 9. 处理请求方法不支持异常
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<Result<String>> handleMethodNotSupportedException(HttpRequestMethodNotSupportedException e) {
         log.warn("请求方式错误: {}", e.getMessage());

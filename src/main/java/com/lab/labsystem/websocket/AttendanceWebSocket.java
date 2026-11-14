@@ -64,15 +64,14 @@ public class AttendanceWebSocket implements MessageListener {
         }
 
         String redisKey = "ws:ticket:" + ticket;
-        String ticketValue = stringRedisTemplate.opsForValue().get(redisKey);
+        // 使用 getAndDelete 保证票据消费的原子性
+        String ticketValue = stringRedisTemplate.opsForValue().getAndDelete(redisKey);
 
         if (ticketValue == null) {
             closeSession(session, "票据无效或已过期");
             return;
         }
-        stringRedisTemplate.delete(redisKey);
 
-        // 票据内容格式为 "工号/学号:角色"，必须先拆开，不能整体当作身份使用
         String[] parts = ticketValue.split(":");
         String userNo = parts.length > 0 ? parts[0] : null;
         String role = parts.length > 1 ? parts[1] : null;
@@ -82,7 +81,7 @@ public class AttendanceWebSocket implements MessageListener {
             return;
         }
 
-        // 【安全加固】房间级授权：票据只证明"你是谁"，不证明"你能看这个场次"。
+        // 房间级授权：票据只证明"你是谁"，不证明"你能看这个场次"。
         // 必须校验该用户与本场次存在关系，否则任何合法登录用户都可以订阅任意场次的考勤广播。
         if (!isAllowedToJoinSession(userNo, role, sessionNo)) {
             closeSession(session, "无权访问该场次的考勤");
@@ -161,7 +160,7 @@ public class AttendanceWebSocket implements MessageListener {
     }
 
     // =========================================================
-    // 🛑【核心改造】广播消息：不再直接发本地，而是发到 Redis 频道
+    // 广播消息：不再直接发本地，而是发到 Redis 频道
     // =========================================================
     public static void broadcast(String sessionNo, String message) {
         if (stringRedisTemplate != null) {
@@ -171,7 +170,7 @@ public class AttendanceWebSocket implements MessageListener {
     }
 
     // =========================================================
-    // 🛑【核心改造】监听 Redis 消息，只推给连在当前服务器的用户
+    // 监听 Redis 消息，只推给连在当前服务器的用户
     // =========================================================
     @Override
     public void onMessage(Message message, byte[] pattern) {

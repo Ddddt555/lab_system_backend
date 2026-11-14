@@ -135,11 +135,8 @@ public class StudentBookingServiceImpl implements StudentBookingService {
         }
 
         if (isWaitlistAutoBook) {
-            int sent = GlobalWebSocket.sendToUser(studentNo,
+            GlobalWebSocket.sendToUser(studentNo,
                 "{\"type\":\"WAITLIST_SUCCESS\",\"message\":\"您候补的实验场次已成功为您预约！\"}");
-            if (sent == 0) {
-                log.debug("[候补通知] 学生 {} 当前不在线，WAITLIST_SUCCESS 未推送", studentNo);
-            }
         }
 
         return "预约成功！";
