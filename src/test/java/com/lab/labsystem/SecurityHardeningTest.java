@@ -109,7 +109,7 @@ public class SecurityHardeningTest {
 
     @Test
     @Order(2)
-    @DisplayName("1. 测试通知越权拦截")
+    @DisplayName("1. 测试通知越权拦截 (依赖 AOP 切面)")
     void testNoticeAuthority() {
         String url = "/api/notice/publish?title=test&content=test&targetRole=all";
         HttpHeaders headers = getHeaders(studentToken);
@@ -118,6 +118,8 @@ public class SecurityHardeningTest {
         ResponseEntity<Result> response = restTemplate.postForEntity(url, entity, Result.class);
         Result result = response.getBody();
 
+        // 由于 RoleAuthAspect 拦截后直接返回 Result 对象而不是抛异常，所以 HTTP 依然是 200
+        assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(result);
         assertEquals(403, result.getCode(), "越权校验失败，学生竟然能发通知！");
         assertTrue(result.getMsg().contains("无权"));
@@ -125,7 +127,7 @@ public class SecurityHardeningTest {
 
     @Test
     @Order(3)
-    @DisplayName("2. 测试异常脱敏")
+    @DisplayName("2. 测试异常脱敏 (依赖 GlobalExceptionHandler)")
     void testExceptionMasking() {
         String url = "/api/student/cancel?bookingNo=INVALID_BOOKING_NO_123";
         HttpHeaders headers = getHeaders(studentToken);
@@ -134,6 +136,9 @@ public class SecurityHardeningTest {
         ResponseEntity<Result> response = restTemplate.postForEntity(url, entity, Result.class);
         Result result = response.getBody();
 
+        // 触发 BusinessException，GlobalExceptionHandler 现在返回真实的 400
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode(), "业务异常应返回 HTTP 400");
+        
         assertNotNull(result);
         assertFalse(result.getMsg().contains("java."), "异常脱敏失败，暴露了底层 Java 类名！");
     }
@@ -185,11 +190,16 @@ public class SecurityHardeningTest {
 
         String getUrlApi = "/api/report/download-url/" + otherFileName;
         ResponseEntity<Result> linkResponse = restTemplate.exchange(getUrlApi, HttpMethod.GET, entity, Result.class);
+        
+        // 此接口 Controller 直接返回了 Result.error，未抛异常，所以 HTTP 是 200
+        assertEquals(HttpStatus.OK, linkResponse.getStatusCode());
         assertEquals(400, linkResponse.getBody().getCode());
         assertEquals("没有权限！", linkResponse.getBody().getMsg());
 
         String downloadApi = "/api/report/download/" + otherFileName;
         ResponseEntity<byte[]> streamResponse = restTemplate.exchange(downloadApi, HttpMethod.GET, entity, byte[].class);
+        
+        // streamFromMinio 直接写入了真实的 403
         assertEquals(403, streamResponse.getStatusCode().value(), "越权直接下载文件流未返回 403！");
     }
 
@@ -240,20 +250,17 @@ public class SecurityHardeningTest {
     @Order(7)
     @DisplayName("6. 验证登出后旧 Access Token 立即失效")
     void testLogoutInvalidatesAccessToken() {
-        // 先请求一个受保护的接口，确保当前 Token 是可用的
         String checkUrl = "/api/notice/list";
         HttpHeaders headers = getHeaders(studentToken);
         HttpEntity<String> entity = new HttpEntity<>(headers);
 
         ResponseEntity<Result> beforeLogout = restTemplate.exchange(checkUrl, HttpMethod.GET, entity, Result.class);
-        // 改用 HTTP 状态码断言，防止拦截器直接拦截导致 getBody() 为空产生 NPE
         assertEquals(200, beforeLogout.getStatusCode().value(), "Token 有效时，应能正常访问");
 
-        // 执行登出
         String logoutUrl = "/api/logout";
         restTemplate.postForEntity(logoutUrl, entity, Result.class);
 
-        // 再次使用刚才的 Access Token 访问接口，应当返回 401
+        // 拦截器直接设置了真实的 401
         ResponseEntity<Result> afterLogout = restTemplate.exchange(checkUrl, HttpMethod.GET, entity, Result.class);
         assertEquals(401, afterLogout.getStatusCode().value(), "登出后，旧 Access Token 应立即失效返回 401！");
     }
@@ -272,7 +279,6 @@ public class SecurityHardeningTest {
     private HttpHeaders getHeaders(String token) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + token);
-        // 使用全限定名解决 MediaType 的歧义冲突
         headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
         headers.set("X-Device-Id", TEST_DEVICE_ID);
         return headers;

@@ -88,7 +88,7 @@ class LoginControllerTest {
         mockMvc.perform(post("/api/login/student")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonContent))
-                .andExpect(status().isOk())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.msg").value("账号不能为空"));
     }
