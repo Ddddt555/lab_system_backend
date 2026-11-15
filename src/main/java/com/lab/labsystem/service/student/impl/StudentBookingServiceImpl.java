@@ -9,6 +9,7 @@ import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.entity.*;
 import com.lab.labsystem.mapper.*;
 import com.lab.labsystem.service.student.StudentBookingService;
+import com.lab.labsystem.service.student.WaitlistService;
 import com.lab.labsystem.vo.SessionVO;
 import com.lab.labsystem.websocket.GlobalWebSocket;
 import lombok.extern.slf4j.Slf4j;
@@ -49,9 +50,9 @@ public class StudentBookingServiceImpl implements StudentBookingService {
     @Autowired private StringRedisTemplate stringRedisTemplate;
     @Autowired private TeacherMapper teacherMapper;
     @Autowired private RedissonClient redissonClient;
+    
+    @Autowired private WaitlistService waitlistService;
 
-    // 候补队列在 Redis 中的 Key 前缀
-    private static final String WAITLIST_QUEUE_PREFIX = "waitlist:queue:";
     // 候补人在 Redis 中的标记（防止重复排队）
     private static final String WAITLIST_USER_PREFIX = "waitlist:user:";
 
@@ -83,7 +84,7 @@ public class StudentBookingServiceImpl implements StudentBookingService {
                 isSynchronizationRegistered = true;
             }
 
-            return doBookSession(studentNo, sessionNo, false);
+            return doBookSession(studentNo, sessionNo);
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -98,9 +99,8 @@ public class StudentBookingServiceImpl implements StudentBookingService {
 
     /**
      * 核心预约逻辑
-     * @param isWaitlistAutoBook 是否为候补自动补位触发的预约
      */
-    private String doBookSession(String studentNo, String sessionNo, boolean isWaitlistAutoBook) {
+    private String doBookSession(String studentNo, String sessionNo) {
         ExpSession targetSession = sessionMapper.selectById(sessionNo);
         if (targetSession == null) throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "该场次不存在！");
 
@@ -158,21 +158,6 @@ public class StudentBookingServiceImpl implements StudentBookingService {
                 });
             } else {
                 GlobalWebSocket.broadcastToRole("all", broadcastMsg);
-            }
-        }
-
-        if (isWaitlistAutoBook) {
-            String notifyMsg = "{\"type\":\"WAITLIST_SUCCESS\",\"message\":\"您候补的实验场次已成功为您预约！\"}";
-            // 延迟发送候补成功通知
-            if (TransactionSynchronizationManager.isSynchronizationActive()) {
-                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
-                        GlobalWebSocket.sendToUser(studentNo, notifyMsg);
-                    }
-                });
-            } else {
-                GlobalWebSocket.sendToUser(studentNo, notifyMsg);
             }
         }
 
@@ -249,7 +234,7 @@ public class StudentBookingServiceImpl implements StudentBookingService {
                 @Override
                 public void afterCommit() {
                     try {
-                        String queueKey = WAITLIST_QUEUE_PREFIX + sessionNo;
+                        String queueKey = "waitlist:queue:" + sessionNo;
                         stringRedisTemplate.opsForList().rightPush(queueKey, studentNo);
                     } catch (Exception e) {
                         // 如果写 Redis 失败，数据库已经提交。依赖 WaitlistReconcileTask 定时对账任务自动补偿
@@ -259,7 +244,7 @@ public class StudentBookingServiceImpl implements StudentBookingService {
 
                 @Override
                 public void afterCompletion(int status) {
-                    // 核心修复：如果外层事务发生回滚，必须清除 Redis 中的防重标记，防止用户被锁死
+                    // 如果外层事务发生回滚，必须清除 Redis 中的防重标记，防止用户被锁死
                     if (status == STATUS_ROLLED_BACK) {
                         stringRedisTemplate.delete(userKey);
                         log.warn("候补加入事务回滚，已清理 Redis 占位标记: {}", userKey);
@@ -313,75 +298,21 @@ public class StudentBookingServiceImpl implements StudentBookingService {
                 }
             }
 
-            // 核心修复：把候补补位逻辑延迟到事务提交成功之后执行
+            // 将候补补位逻辑延迟到事务提交成功之后执行
             if (TransactionSynchronizationManager.isSynchronizationActive()) {
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        handleWaitlist(session.getSessionNo());
+                        waitlistService.processWaitlist(session.getSessionNo());
                     }
                 });
             } else {
-                handleWaitlist(session.getSessionNo());
+                waitlistService.processWaitlist(session.getSessionNo());
             }
         }
         return "取消预约成功！";
     }
 
-    /**
-     * 处理候补逻辑（被退课操作触发）
-     */
-    private void handleWaitlist(String sessionNo) {
-        String queueKey = WAITLIST_QUEUE_PREFIX + sessionNo;
-        
-        Long queueSize = stringRedisTemplate.opsForList().size(queueKey);
-        if (queueSize == null || queueSize == 0) {
-            return;
-        }
-
-        int maxAttempts = queueSize.intValue();
-
-        for (int i = 0; i < maxAttempts; i++) {
-            String nextStudentNo = stringRedisTemplate.opsForList().leftPop(queueKey);
-            if (nextStudentNo == null) {
-                break; 
-            }
-
-            String userKey = WAITLIST_USER_PREFIX + sessionNo + ":" + nextStudentNo;
-
-            try {
-                // 尝试补位
-                doBookSession(nextStudentNo, sessionNo, true);
-                
-                // 补位成功：删除防重标记，更新状态为 BOOKED，结束循环
-                stringRedisTemplate.delete(userKey);
-                UpdateWrapper<WaitlistRecord> updateWrapper = new UpdateWrapper<>();
-                updateWrapper.eq("session_no", sessionNo)
-                             .eq("student_no", nextStudentNo)
-                             .set("status", "BOOKED");
-                waitlistRecordMapper.update(null, updateWrapper);
-                break; 
-
-            } catch (BusinessException e) {
-                // 业务异常：说明该学生在此期间失去了资格（如自己退课了）
-                // 直接淘汰，不再放回队列，避免阻塞后续排队的学生
-                log.warn("候补补位失败(业务拒绝): {}，原因: {}。将其移出队列", nextStudentNo, e.getMessage());
-                
-                stringRedisTemplate.delete(userKey);
-                UpdateWrapper<WaitlistRecord> failWrapper = new UpdateWrapper<>();
-                failWrapper.eq("session_no", sessionNo)
-                           .eq("student_no", nextStudentNo)
-                           .set("status", "FAILED");
-                waitlistRecordMapper.update(null, failWrapper);
-
-            } catch (Exception e) {
-                // 系统异常（如数据库死锁、网络超时），学生本身是合规的，放回队尾重试
-                log.error("候补补位失败(系统异常): {}，原因: {}。将其移至队尾重试", nextStudentNo, e.getMessage());
-                stringRedisTemplate.opsForList().rightPush(queueKey, nextStudentNo);
-            }
-        }
-    }
-    
     @Override
     public Object listMyBookings(String studentNo, Integer page, Integer size) {
         boolean paged = page != null && size != null;

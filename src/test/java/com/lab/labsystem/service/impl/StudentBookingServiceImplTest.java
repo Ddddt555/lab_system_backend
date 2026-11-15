@@ -2,6 +2,7 @@ package com.lab.labsystem.service.impl;
 
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.mapper.ExpSessionMapper;
+import com.lab.labsystem.service.student.WaitlistService;
 import com.lab.labsystem.service.student.impl.StudentBookingServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +27,7 @@ class StudentBookingServiceImplTest {
     private StringRedisTemplate redis;
     private RedissonClient redissonClient;
     private RLock lock;
+    private WaitlistService waitlistService;
     private StudentBookingServiceImpl service;
 
     @BeforeEach
@@ -33,14 +35,16 @@ class StudentBookingServiceImplTest {
         redis = mock(StringRedisTemplate.class);
         redissonClient = mock(RedissonClient.class);
         lock = mock(RLock.class);
+        waitlistService = mock(WaitlistService.class);
 
         // 模拟 RedissonClient 返回具体的 RLock
         when(redissonClient.getLock(anyString())).thenReturn(lock);
 
         service = new StudentBookingServiceImpl();
-        // 同时注入 StringRedisTemplate 和 RedissonClient
+        // 注入依赖
         ReflectionTestUtils.setField(service, "stringRedisTemplate", redis);
         ReflectionTestUtils.setField(service, "redissonClient", redissonClient);
+        ReflectionTestUtils.setField(service, "waitlistService", waitlistService);
     }
 
     @Test
