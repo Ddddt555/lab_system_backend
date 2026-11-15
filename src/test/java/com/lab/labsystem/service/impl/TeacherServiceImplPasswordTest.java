@@ -6,6 +6,7 @@ import com.lab.labsystem.common.NumberGenerator;
 import com.lab.labsystem.entity.Teacher;
 import com.lab.labsystem.mapper.TeacherMapper;
 import com.lab.labsystem.service.auth.MustChangePasswordCache;
+import com.lab.labsystem.service.auth.TokenService;
 import com.lab.labsystem.service.teacher.impl.TeacherServiceImpl;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -22,14 +23,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * 教师自助改密的规则测试（与学生端保持同一套约束）。
- */
 class TeacherServiceImplPasswordTest {
 
     private TeacherMapper teacherMapper;
     private BCryptPasswordEncoder passwordEncoder;
     private MustChangePasswordCache cache;
+    private TokenService tokenService;
     private TeacherServiceImpl service;
 
     @BeforeEach
@@ -37,11 +36,13 @@ class TeacherServiceImplPasswordTest {
         teacherMapper = mock(TeacherMapper.class);
         passwordEncoder = mock(BCryptPasswordEncoder.class);
         cache = mock(MustChangePasswordCache.class);
+        tokenService = mock(TokenService.class);
 
         service = new TeacherServiceImpl();
         ReflectionTestUtils.setField(service, "teacherMapper", teacherMapper);
         ReflectionTestUtils.setField(service, "passwordEncoder", passwordEncoder);
         ReflectionTestUtils.setField(service, "mustChangePasswordCache", cache);
+        ReflectionTestUtils.setField(service, "tokenService", tokenService);
     }
 
     @Test
@@ -69,10 +70,11 @@ class TeacherServiceImplPasswordTest {
         assertEquals("原密码错误！", e.getMessage());
         verify(teacherMapper, never()).updateById(any(Teacher.class));
         verify(cache, never()).evict(any(), any());
+        verify(tokenService, never()).revokeAllDevices(any());
     }
 
     @Test
-    @DisplayName("改密成功后清除强制改密标记与缓存")
+    @DisplayName("改密成功后清除强制改密标记、缓存并强退所有设备")
     void successClearsMustChangeAndCache() {
         Teacher teacher = new Teacher();
         teacher.setWorkNo("T001");
@@ -89,12 +91,12 @@ class TeacherServiceImplPasswordTest {
         assertEquals(0, teacher.getMustChangePassword());
         verify(teacherMapper).updateById(teacher);
         verify(cache).evict("teacher", "T001");
+        verify(tokenService).revokeAllDevices("T001");
     }
     
     @Test
     @DisplayName("新增教师：忽略前端传的密码，强制使用后端初始密码")
     void addTeacherIgnoresFrontendPassword() {
-        // 1. 准备依赖 Mock
         NumberGenerator numberGenerator = mock(NumberGenerator.class);
         when(numberGenerator.generateWorkNo()).thenReturn("T2026001");
         ReflectionTestUtils.setField(service, "numberGenerator", numberGenerator);
@@ -102,26 +104,20 @@ class TeacherServiceImplPasswordTest {
         when(passwordEncoder.encode("123456")).thenReturn("encoded-default-pwd");
         when(teacherMapper.selectRealById("T2026001")).thenReturn(null);
 
-        // 2. 模拟前端恶意传入 DTO（如果 DTO 里有 password 字段的话）
-        // 注意：如果 DTO 里根本没有 password 字段，这里根本连 set 都调不了，这才是最安全的。
         TeacherCreateDTO dto = new TeacherCreateDTO();
         dto.setName("王老师");
         dto.setDeptNo("D001");
-        // dto.setPassword("hacked-pwd"); // DTO 中不存在此字段，编译器会直接报错
 
-        // 3. 调用
         String result = service.addTeacher(dto);
 
-        // 4. 验证
         assertEquals("教师添加成功！工号为：T2026001", result);
         
-        // 抓取插入的 Teacher 对象，验证密码和工号
         org.mockito.ArgumentCaptor<Teacher> captor = org.mockito.ArgumentCaptor.forClass(Teacher.class);
         verify(teacherMapper).insert(captor.capture());
         Teacher savedTeacher = captor.getValue();
         
         assertEquals("T2026001", savedTeacher.getWorkNo());
-        assertEquals("encoded-default-pwd", savedTeacher.getPassword()); // 密码一定是后端生成的
-        assertEquals(1, savedTeacher.getMustChangePassword()); // 必须强制改密
+        assertEquals("encoded-default-pwd", savedTeacher.getPassword());
+        assertEquals(1, savedTeacher.getMustChangePassword());
     }
 }

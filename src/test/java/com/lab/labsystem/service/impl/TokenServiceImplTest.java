@@ -3,21 +3,27 @@ package com.lab.labsystem.service.impl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.Arrays;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -179,6 +185,35 @@ class TokenServiceImplTest {
                 () -> service.revokeTokens(tokenWithBearer));
 
         assertEquals("登出失败，网络或缓存异常，请重试！", e.getMessage());
+    }
+
+    @Test
+    @DisplayName("强制撤销所有设备：清理该用户全部 Token 与幂等缓存")
+    @SuppressWarnings("unchecked")
+    void revokeAllDevices() {
+        String userNo = "S001";
+        String dev1 = "dev-1234567890123456";
+        String dev2 = "dev-6543210987654321";
+        
+        // Mock ZSet 返回这两个设备
+        when(zSetOps.range("user:devices:S001", 0, -1))
+                .thenReturn(new LinkedHashSet<>(Arrays.asList(dev1, dev2)));
+
+        service.revokeAllDevices(userNo);
+
+        // 验证批量删除 Token 缓存（List 参数）
+        ArgumentCaptor<List<String>> listCaptor = ArgumentCaptor.forClass(List.class);
+        verify(redis, times(1)).delete(listCaptor.capture());
+        
+        List<String> keysToDelete = listCaptor.getValue();
+        assertEquals(4, keysToDelete.size());
+        assertTrue(keysToDelete.contains("refresh_token:{S001:" + dev1 + "}"));
+        assertTrue(keysToDelete.contains("refresh:idem:{S001:" + dev1 + "}"));
+        assertTrue(keysToDelete.contains("refresh_token:{S001:" + dev2 + "}"));
+        assertTrue(keysToDelete.contains("refresh:idem:{S001:" + dev2 + "}"));
+
+        // 验证删除设备列表（String 参数）
+        verify(redis, times(1)).delete("user:devices:S001");
     }
 
     @Test

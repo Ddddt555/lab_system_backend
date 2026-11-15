@@ -4,6 +4,7 @@ import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.entity.Student;
 import com.lab.labsystem.mapper.StudentMapper;
 import com.lab.labsystem.service.auth.MustChangePasswordCache;
+import com.lab.labsystem.service.auth.TokenService;
 import com.lab.labsystem.service.student.impl.StudentServiceImpl;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -22,15 +23,13 @@ import static org.mockito.Mockito.when;
 
 /**
  * 学生自助改密的规则测试。
- *
- * <p>该类使用的是字段注入，这里用 ReflectionTestUtils 注入 mock，
- * 避免为了测试而整体改写这个已有类的构造方式。
  */
 class StudentServiceImplPasswordTest {
 
     private StudentMapper studentMapper;
     private BCryptPasswordEncoder passwordEncoder;
     private MustChangePasswordCache cache;
+    private TokenService tokenService;
     private StudentServiceImpl service;
 
     @BeforeEach
@@ -38,11 +37,13 @@ class StudentServiceImplPasswordTest {
         studentMapper = mock(StudentMapper.class);
         passwordEncoder = mock(BCryptPasswordEncoder.class);
         cache = mock(MustChangePasswordCache.class);
+        tokenService = mock(TokenService.class);
 
         service = new StudentServiceImpl();
         ReflectionTestUtils.setField(service, "studentMapper", studentMapper);
         ReflectionTestUtils.setField(service, "passwordEncoder", passwordEncoder);
         ReflectionTestUtils.setField(service, "mustChangePasswordCache", cache);
+        ReflectionTestUtils.setField(service, "tokenService", tokenService);
     }
 
     @Test
@@ -71,10 +72,11 @@ class StudentServiceImplPasswordTest {
         assertEquals("原密码错误！", e.getMessage());
         verify(studentMapper, never()).updateById(any(Student.class));
         verify(cache, never()).evict(any(), any());
+        verify(tokenService, never()).revokeAllDevices(any());
     }
 
     @Test
-    @DisplayName("改密成功后清除强制改密标记与缓存")
+    @DisplayName("改密成功后清除强制改密标记、缓存并强退所有设备")
     void successClearsMustChangeAndCache() {
         Student student = new Student();
         student.setStudentNo("S001");
@@ -90,7 +92,7 @@ class StudentServiceImplPasswordTest {
         assertEquals("new-hash", student.getPassword());
         assertEquals(0, student.getMustChangePassword());
         verify(studentMapper).updateById(student);
-        // 缓存必须失效，否则旧状态会保留到 TTL 到期
         verify(cache).evict("student", "S001");
+        verify(tokenService).revokeAllDevices("S001");
     }
 }

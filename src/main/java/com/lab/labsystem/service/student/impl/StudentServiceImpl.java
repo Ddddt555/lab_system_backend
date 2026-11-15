@@ -17,6 +17,7 @@ import com.lab.labsystem.mapper.DepartmentMapper;
 import com.lab.labsystem.mapper.MajorMapper;
 import com.lab.labsystem.mapper.StudentMapper;
 import com.lab.labsystem.service.auth.MustChangePasswordCache;
+import com.lab.labsystem.service.auth.TokenService;
 import com.lab.labsystem.service.student.StudentService;
 import com.lab.labsystem.common.NumberGenerator;
 import org.springframework.beans.BeanUtils;
@@ -45,8 +46,8 @@ public class StudentServiceImpl implements StudentService {
     @Autowired private BCryptPasswordEncoder passwordEncoder;
     @Autowired private NumberGenerator numberGenerator;
     @Autowired private MustChangePasswordCache mustChangePasswordCache;
+    @Autowired private TokenService tokenService;
 
-    // 辅助方法：去除了查库逻辑，完全依赖传入的对象
     private String buildAdminClassName(AdminClass ac, Major major, Department dept) {
         if (ac == null) return "未分配";
         String majorName = major != null ? major.getMajorName() : "未知专业";
@@ -68,7 +69,6 @@ public class StudentServiceImpl implements StudentService {
             students = studentPage.getRecords();
             total = studentPage.getTotal();
         } else {
-            // 无分页参数时，限制最大返回条数，防止全表加载
             students = QueryLimits.list(studentMapper, null);
         }
 
@@ -76,7 +76,6 @@ public class StudentServiceImpl implements StudentService {
             return (page != null && size != null) ? new PageResult<>(total, new ArrayList<>()) : new ArrayList<>();
         }
 
-        // 1. 批量查询行政班
         List<String> adminClassNos = students.stream()
                 .map(Student::getAdminClassNo)
                 .filter(Objects::nonNull)
@@ -87,7 +86,6 @@ public class StudentServiceImpl implements StudentService {
                 adminClassMapper.selectBatchIds(adminClassNos).stream()
                         .collect(Collectors.toMap(AdminClass::getAdminClassNo, ac -> ac, (k1, k2) -> k1));
 
-        // 2. 批量查询专业
         List<String> majorNos = adminClassMap.values().stream()
                 .map(AdminClass::getMajorNo)
                 .filter(Objects::nonNull)
@@ -98,7 +96,6 @@ public class StudentServiceImpl implements StudentService {
                 majorMapper.selectBatchIds(majorNos).stream()
                         .collect(Collectors.toMap(Major::getMajorNo, m -> m, (k1, k2) -> k1));
 
-        // 3. 批量查询院系
         List<String> deptNos = majorMap.values().stream()
                 .map(Major::getDeptNo)
                 .filter(Objects::nonNull)
@@ -109,7 +106,6 @@ public class StudentServiceImpl implements StudentService {
                 departmentMapper.selectBatchIds(deptNos).stream()
                         .collect(Collectors.toMap(Department::getDeptNo, d -> d, (k1, k2) -> k1));
 
-        // 4. 组装数据（全从 Map 取，零查库）
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (Student s : students) {
             Map<String, Object> map = new HashMap<>();
@@ -142,34 +138,28 @@ public class StudentServiceImpl implements StudentService {
     public String addStudent(StudentCreateDTO dto) {
         Student student = new Student();
         
-        // 1. 安全拷贝：只拷贝 dto 中的 name/adminClassNo
         BeanUtils.copyProperties(dto, student);
 
-        // 2. 后端接管敏感字段
         student.setStudentNo(numberGenerator.generateStudentNo());
-        student.setPassword(passwordEncoder.encode("123456")); // 强制默认密码
-        student.setMustChangePassword(1); // 强制首次修改密码
-        student.setDeleted(0); // 默认未删除
+        student.setPassword(passwordEncoder.encode("123456"));
+        student.setMustChangePassword(1);
+        student.setDeleted(0);
 
-        // 3. 利用自定义 SQL 穿透逻辑删除，检查该学号是否已存在（哪怕是已删除状态）
         Student existStudent = studentMapper.selectRealById(student.getStudentNo());
         
         if (existStudent != null) {
-            // 如果存在，直接把状态复活，并覆盖更新
-            studentMapper.restoreStudent(student.getStudentNo()); // 先把 deleted 置为 0
-            student.setDeleted(0); // 实体类也设为 0，防止 MyBatis-Plus 忽略更新
-            studentMapper.updateById(student); // 更新其他信息
+            studentMapper.restoreStudent(student.getStudentNo());
+            student.setDeleted(0);
+            studentMapper.updateById(student);
             return "学号 " + student.getStudentNo() + " 曾被删除，已为您恢复并更新！";
         }
 
-        // 如果不存在，正常插入
         studentMapper.insert(student);
         return "学生添加成功！学号为：" + student.getStudentNo();
     }
 
     @Override
     public void deleteStudent(String studentNo) {
-        // 因为加了 @TableLogic，这里的 deleteById 会自动变成 update set deleted=1
         studentMapper.deleteById(studentNo);
     }
 
@@ -182,7 +172,6 @@ public class StudentServiceImpl implements StudentService {
             return "Excel 文件为空！";
         }
 
-        // 1. 提取所有需要校验的班级号
         List<String> classNosToCheck = list.stream()
                 .map(com.lab.labsystem.dto.StudentImportDTO::getAdminClassNo)
                 .filter(Objects::nonNull)
@@ -191,7 +180,6 @@ public class StudentServiceImpl implements StudentService {
                 .distinct()
                 .collect(Collectors.toList());
 
-        // 2. 一次性查出库中存在的班级，放入 Set 方便 O(1) 比对
         Set<String> existingClassNos = classNosToCheck.isEmpty() ? new java.util.HashSet<>() :
                 adminClassMapper.selectBatchIds(classNosToCheck).stream()
                         .map(AdminClass::getAdminClassNo)
@@ -202,17 +190,14 @@ public class StudentServiceImpl implements StudentService {
 
         for (int i = 0; i < list.size(); i++) {
             com.lab.labsystem.dto.StudentImportDTO dto = list.get(i);
-            int rowNum = i + 2; // Excel 表头占第 1 行，数据从第 2 行开始
+            int rowNum = i + 2;
             try {
-                // 基础校验：姓名
                 if (dto.getName() == null || dto.getName().trim().isEmpty()) {
                     throw BusinessException.of(ErrorCode.BAD_REQUEST, "姓名不能为空");
                 }
-                // 基础校验：行政班
                 if (dto.getAdminClassNo() == null || dto.getAdminClassNo().trim().isEmpty()) {
                     throw BusinessException.of(ErrorCode.BAD_REQUEST, "行政班号不能为空");
                 }
-                // 业务校验：直接比对内存中的 Set，不再查库
                 String classNo = dto.getAdminClassNo().trim();
                 if (!existingClassNos.contains(classNo)) {
                     throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "行政班号 [" + classNo + "] 不存在");
@@ -223,7 +208,7 @@ public class StudentServiceImpl implements StudentService {
                 student.setName(dto.getName());
                 student.setAdminClassNo(classNo);
                 student.setPassword(passwordEncoder.encode("123456"));
-                student.setMustChangePassword(1); // 强制首次登录改密
+                student.setMustChangePassword(1);
                 student.setDeleted(0);
                 studentMapper.insert(student);
                 successCount++;
@@ -262,6 +247,9 @@ public class StudentServiceImpl implements StudentService {
 
         // 缓存一致性：改密成功后清除强制改密缓存
         mustChangePasswordCache.evict("student", studentNo);
+
+        // 强制撤销该学生所有设备的会话
+        tokenService.revokeAllDevices(studentNo);
 
         return "密码修改成功，请重新登录！";
     }

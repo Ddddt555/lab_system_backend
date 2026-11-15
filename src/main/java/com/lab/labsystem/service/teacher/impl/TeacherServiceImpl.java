@@ -14,6 +14,7 @@ import com.lab.labsystem.mapper.TitleDictMapper;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.common.PasswordValidator;
 import com.lab.labsystem.service.auth.MustChangePasswordCache;
+import com.lab.labsystem.service.auth.TokenService;
 import com.lab.labsystem.service.teacher.TeacherService;
 import com.lab.labsystem.common.NumberGenerator;
 import org.springframework.beans.BeanUtils;
@@ -37,6 +38,7 @@ public class TeacherServiceImpl implements TeacherService {
     @Autowired private BCryptPasswordEncoder passwordEncoder;
     @Autowired private NumberGenerator numberGenerator;
     @Autowired private MustChangePasswordCache mustChangePasswordCache;
+    @Autowired private TokenService tokenService;
 
     @Override
     public Object getTeacherList(Integer page, Integer size) {
@@ -47,7 +49,6 @@ public class TeacherServiceImpl implements TeacherService {
             teachers = teacherPage.getRecords();
             total = teacherPage.getTotal();
         } else {
-            // 无分页参数时，限制最大返回条数，防止全表加载
             teachers = QueryLimits.list(teacherMapper, null);
         }
 
@@ -55,7 +56,6 @@ public class TeacherServiceImpl implements TeacherService {
             return (page != null && size != null) ? new PageResult<>(total, new ArrayList<>()) : new ArrayList<>();
         }
 
-        // 1. 批量查询院系
         List<String> deptNos = teachers.stream()
                 .map(Teacher::getDeptNo)
                 .filter(Objects::nonNull)
@@ -66,7 +66,6 @@ public class TeacherServiceImpl implements TeacherService {
                 departmentMapper.selectBatchIds(deptNos).stream()
                         .collect(Collectors.toMap(Department::getDeptNo, d -> d, (k1, k2) -> k1));
 
-        // 2. 批量查询职称
         List<String> titleNos = teachers.stream()
                 .map(Teacher::getTitleNo)
                 .filter(Objects::nonNull)
@@ -77,7 +76,6 @@ public class TeacherServiceImpl implements TeacherService {
                 titleDictMapper.selectBatchIds(titleNos).stream()
                         .collect(Collectors.toMap(TitleDict::getTitleNo, t -> t, (k1, k2) -> k1));
 
-        // 3. 组装数据（零查库）
         List<Map<String, Object>> resultList = new ArrayList<>();
         for (Teacher t : teachers) {
             Map<String, Object> map = new HashMap<>();
@@ -102,27 +100,22 @@ public class TeacherServiceImpl implements TeacherService {
     public String addTeacher(TeacherCreateDTO dto) {
         Teacher teacher = new Teacher();
         
-        // 1. 安全拷贝：只把 dto 里的 name/deptNo/titleNo 搬过来
         BeanUtils.copyProperties(dto, teacher);
 
-        // 2. 后端强行接管敏感字段
         teacher.setWorkNo(numberGenerator.generateWorkNo());
-        teacher.setPassword(passwordEncoder.encode("123456")); // 强制初始密码为 123456
-        teacher.setMustChangePassword(1); // 强制首次登录修改密码
-        teacher.setDeleted(0); // 默认未删除
+        teacher.setPassword(passwordEncoder.encode("123456"));
+        teacher.setMustChangePassword(1);
+        teacher.setDeleted(0);
 
-        // 3. 检查工号是否被逻辑删除占用了
         Teacher existTeacher = teacherMapper.selectRealById(teacher.getWorkNo());
         
         if (existTeacher != null) {
-            // 如果存在，复活并覆盖更新
             teacherMapper.restoreTeacher(teacher.getWorkNo());
             teacher.setDeleted(0);
             teacherMapper.updateById(teacher);
             return "工号 " + teacher.getWorkNo() + " 曾被删除，已为您恢复并更新！";
         }
 
-        // 4. 如果不存在，正常插入
         teacherMapper.insert(teacher);
         return "教师添加成功！工号为：" + teacher.getWorkNo();
     }
@@ -151,6 +144,9 @@ public class TeacherServiceImpl implements TeacherService {
 
         // 改密成功后清除强制改密缓存
         mustChangePasswordCache.evict("teacher", workNo);
+
+        // 强制撤销该教师所有设备的会话
+        tokenService.revokeAllDevices(workNo);
 
         return "密码修改成功！";
     }

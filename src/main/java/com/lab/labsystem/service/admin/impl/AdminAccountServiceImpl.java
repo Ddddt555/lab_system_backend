@@ -10,6 +10,7 @@ import com.lab.labsystem.mapper.StudentMapper;
 import com.lab.labsystem.mapper.TeacherMapper;
 import com.lab.labsystem.service.admin.AdminAccountService;
 import com.lab.labsystem.service.auth.MustChangePasswordCache;
+import com.lab.labsystem.service.auth.TokenService;
 
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -30,15 +31,18 @@ public class AdminAccountServiceImpl implements AdminAccountService {
     private final TeacherMapper teacherMapper;
     private final BCryptPasswordEncoder passwordEncoder;
     private final MustChangePasswordCache mustChangePasswordCache;
+    private final TokenService tokenService;
 
     public AdminAccountServiceImpl(StudentMapper studentMapper,
                                    TeacherMapper teacherMapper,
                                    BCryptPasswordEncoder passwordEncoder,
-                                   MustChangePasswordCache mustChangePasswordCache) {
+                                   MustChangePasswordCache mustChangePasswordCache,
+                                   TokenService tokenService) {
         this.studentMapper = studentMapper;
         this.teacherMapper = teacherMapper;
         this.passwordEncoder = passwordEncoder;
         this.mustChangePasswordCache = mustChangePasswordCache;
+        this.tokenService = tokenService;
     }
 
     @Override
@@ -56,6 +60,8 @@ public class AdminAccountServiceImpl implements AdminAccountService {
             studentMapper.updateById(student);
             // 缓存一致性：重置后必须立即失效，否则最多 60 秒内仍被判定为"无需改密"
             mustChangePasswordCache.evict("student", account);
+            // 强制下线该学生的所有设备
+            tokenService.revokeAllDevices(account);
 
         } else if ("teacher".equals(role)) {
             Teacher teacher = teacherMapper.selectById(account);
@@ -67,6 +73,8 @@ public class AdminAccountServiceImpl implements AdminAccountService {
             teacher.setPwdUpdateTime(LocalDateTime.now());
             teacherMapper.updateById(teacher);
             mustChangePasswordCache.evict("teacher", account);
+            // 强制下线该教师的所有设备
+            tokenService.revokeAllDevices(account);
 
         } else {
             throw BusinessException.of(ErrorCode.BAD_REQUEST, "不支持的角色！");

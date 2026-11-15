@@ -4,6 +4,7 @@ import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.mapper.SysAdminMapper;
 import com.lab.labsystem.service.admin.AdminService;
 import com.lab.labsystem.service.auth.MustChangePasswordCache;
+import com.lab.labsystem.service.auth.TokenService;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -20,22 +21,22 @@ import static org.mockito.Mockito.verify;
 
 /**
  * 管理员自助改密的校验规则测试。
- *
- * <p>密码强度校验从 controller 移到了 service，这里锁住"先校验、后查库"的顺序，
- * 避免弱口令请求打到数据库。
  */
 class AdminServicePasswordTest {
 
     private SysAdminMapper adminMapper;
+    private TokenService tokenService;
     private AdminService service;
 
     @BeforeEach
     void setUp() {
         adminMapper = mock(SysAdminMapper.class);
+        tokenService = mock(TokenService.class);
         service = new AdminService();
         ReflectionTestUtils.setField(service, "adminMapper", adminMapper);
         ReflectionTestUtils.setField(service, "passwordEncoder", mock(BCryptPasswordEncoder.class));
         ReflectionTestUtils.setField(service, "mustChangePasswordCache", mock(MustChangePasswordCache.class));
+        ReflectionTestUtils.setField(service, "tokenService", tokenService);
     }
 
     @Test
@@ -46,5 +47,6 @@ class AdminServicePasswordTest {
 
         assertEquals("密码长度不能少于 8 位！", e.getMessage());
         verify(adminMapper, never()).selectOne(any());
+        verify(tokenService, never()).revokeAllDevices(any());
     }
 }

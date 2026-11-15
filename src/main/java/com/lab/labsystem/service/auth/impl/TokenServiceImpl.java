@@ -17,9 +17,11 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -43,20 +45,6 @@ public class TokenServiceImpl implements TokenService {
 
     /**
      * 刷新 Token 原子脚本。
-     * KEYS[1]: 主 Refresh Token Key
-     * KEYS[2]: 幂等缓存 Hash Key
-     * ARGV[1]: 旧 Refresh Token
-     * ARGV[2]: 旧 Refresh Token 的 JTI
-     * ARGV[3]: 新 Access Token
-     * ARGV[4]: 新 Refresh Token
-     * ARGV[5]: 新 Refresh Token 的 JTI
-     * ARGV[6]: 主 Token 过期时间 (秒)
-     * ARGV[7]: 幂等缓存过期时间 (秒)
-     * 
-     * 返回值说明:
-     * SUCCESS|accessToken|refreshToken|jti: 轮换成功
-     * CACHED|accessToken|refreshToken|jti:  命中幂等缓存且有效
-     * FAIL: 匹配失败或会话失效
      */
     private static final String REFRESH_TOKEN_LUA_SCRIPT =
             "local cached = redis.call('HGET', KEYS[2], ARGV[2]) " +
@@ -83,8 +71,6 @@ public class TokenServiceImpl implements TokenService {
 
     /**
      * 登出撤销原子脚本。
-     * KEYS[1]: 主 Refresh Token Key
-     * KEYS[2]: 幂等缓存 Hash Key
      */
     private static final String REVOKE_TOKEN_LUA_SCRIPT =
             "redis.call('DEL', KEYS[1]) " +
@@ -187,10 +173,6 @@ public class TokenServiceImpl implements TokenService {
             );
 
             if (result == null || result.startsWith("FAIL")) {
-                // 安全策略说明：
-                // 由于合法的并发重试已由上面的幂等缓存处理（命中 CACHED 分支），
-                // 因此一旦走到 FAIL，说明令牌在 5 分钟幂等窗口外被重放，或遭恶意攻击。
-                // 依据“零容忍”防御策略，不仅拒绝本次请求，还将强制注销该设备的全部当前会话。
                 SysLog dbLog = new SysLog();
                 dbLog.setOperator("用户-" + userNo);
                 dbLog.setAction("安全拦截：设备 " + deviceId + " 触发刷新令牌重放，依据零容忍策略已强制注销该设备全部会话");
@@ -200,7 +182,6 @@ public class TokenServiceImpl implements TokenService {
 
                 securityLog.warn("【重放攻击拦截】用户: {}, 设备: {}, 使用了失效的 RefreshToken，已触发零容忍策略并强制下线该设备", userNo, deviceId);
 
-                // 执行强制下线：删除当前设备最新的有效 RefreshToken 和 幂等缓存
                 DefaultRedisScript<Long> revokeScript = new DefaultRedisScript<>(REVOKE_TOKEN_LUA_SCRIPT, Long.class);
                 stringRedisTemplate.execute(revokeScript, Arrays.asList(redisKey, idempotentKey));
                 stringRedisTemplate.opsForZSet().remove(USER_DEVICES_PREFIX + userNo, deviceId);
@@ -255,6 +236,30 @@ public class TokenServiceImpl implements TokenService {
                 throw BusinessException.of(ErrorCode.SYSTEM_ERROR, "登出失败，网络或缓存异常，请重试！");
             }
         }
+    }
+
+    @Override
+    public void revokeAllDevices(String userNo) {
+        if (userNo == null || userNo.isEmpty()) return;
+        
+        String userDevicesKey = USER_DEVICES_PREFIX + userNo;
+        // 获取该用户所有在线设备的 deviceId
+        Set<String> deviceIds = stringRedisTemplate.opsForZSet().range(userDevicesKey, 0, -1);
+        
+        if (deviceIds != null && !deviceIds.isEmpty()) {
+            List<String> keysToDelete = new ArrayList<>();
+            for (String deviceId : deviceIds) {
+                String hashTag = "{" + userNo + ":" + deviceId + "}";
+                keysToDelete.add(REFRESH_TOKEN_PREFIX + hashTag);
+                keysToDelete.add(IDEMPOTENT_PREFIX + hashTag);
+            }
+            // 批量删除所有设备的 Token 和 幂等缓存
+            stringRedisTemplate.delete(keysToDelete);
+        }
+        
+        // 删除设备列表
+        stringRedisTemplate.delete(userDevicesKey);
+        securityLog.warn("【安全保护】用户 {} 的密码发生变更，已强制撤销其所有设备的会话", userNo);
     }
 
     @Override
