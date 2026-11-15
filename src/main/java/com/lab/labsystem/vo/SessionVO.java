@@ -27,11 +27,12 @@ public class SessionVO {
     private String comment;
 
     private String studentNo; 
+    private String studentName;
     private Boolean isGraded; 
     private Double reportScore;
     private Double totalScore;
 
-    // 新增：当前学生是否有资格加入候补
+    // 当前学生是否有资格加入候补
     private Boolean isEligible;
 
     public String getSessionNo() { return sessionNo; }
@@ -75,6 +76,9 @@ public class SessionVO {
 
     public String getStudentNo() { return studentNo; }
     public void setStudentNo(String studentNo) { this.studentNo = studentNo; }
+
+    public String getStudentName() { return studentName; }
+    public void setStudentName(String studentName) { this.studentName = studentName; }
     
     public Boolean getIsGraded() { return isGraded; }
     public void setIsGraded(Boolean isGraded) { this.isGraded = isGraded; }

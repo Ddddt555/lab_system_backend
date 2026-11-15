@@ -157,9 +157,13 @@ public class SecurityHardeningTest {
         CountDownLatch latch = new CountDownLatch(threadCount);
         java.util.concurrent.atomic.AtomicInteger successCount = new java.util.concurrent.atomic.AtomicInteger(0);
 
-        String url = "/api/teacher/score/save?studentNo=" + realStudentNo + "&classNo=" + realClassNo + "&dailyScore=85.0";
+        String url = "/api/teacher/score/save";
         HttpHeaders headers = getHeaders(teacherToken);
-        HttpEntity<String> entity = new HttpEntity<>(headers);
+        
+        // 构造 JSON Body
+        String requestBody = String.format("{\"studentNo\":\"%s\",\"classNo\":\"%s\",\"dailyScore\":85.0}", 
+                realStudentNo, realClassNo);
+        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
 
         for (int i = 0; i < threadCount; i++) {
             executor.submit(() -> {
@@ -287,19 +291,17 @@ public class SecurityHardeningTest {
 
         // 2. 调用管理员接口删除该教师
         HttpHeaders adminHeaders = getHeaders(adminToken);
-        // 注意：DELETE 请求给一个空字符串作为 Body，防止部分 HttpClient 在带 Content-Type 且无 Body 时报错
         HttpEntity<String> adminEntity = new HttpEntity<>("", adminHeaders);
         String deleteUrl = "/api/admin/teacher/delete?workNo=" + realTeacherNo;
         ResponseEntity<Result> deleteResp = restTemplate.exchange(deleteUrl, HttpMethod.DELETE, adminEntity, Result.class);
         
-        // 确认删除请求本身是成功的
         assertTrue(deleteResp.getStatusCode().is2xxSuccessful(), "执行删除教师失败：" + deleteResp.getBody().getMsg());
 
         // 3. 验证删除后，该教师旧 Token 被立即拦截返回 401
         ResponseEntity<Result> afterDelete = restTemplate.exchange(checkUrl, HttpMethod.GET, teacherEntity, Result.class);
         assertEquals(401, afterDelete.getStatusCode().value(), "删除后，旧 Access Token 应立即失效返回 401！");
 
-        // 4. 恢复测试数据，避免影响其它用例或测试环境
+        // 4. 恢复测试数据
         String restoreUrl = "/api/admin/teacher/restore?workNo=" + realTeacherNo;
         restTemplate.postForEntity(restoreUrl, adminEntity, Result.class);
     }

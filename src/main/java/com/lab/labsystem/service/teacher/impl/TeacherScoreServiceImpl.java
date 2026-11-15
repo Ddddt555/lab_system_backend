@@ -317,7 +317,7 @@ public class TeacherScoreServiceImpl implements TeacherScoreService {
         for (String sNo : pageStudentNos) {
             SessionVO vo = new SessionVO();
             vo.setStudentNo(sNo);
-            vo.setTeacherName(studentNameMap.getOrDefault(sNo, "未知学生"));
+            vo.setStudentName(studentNameMap.getOrDefault(sNo, "未知学生"));
 
             ExpScore existScore = scoreMap.get(sNo);
             if (existScore != null) {
