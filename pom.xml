@@ -54,10 +54,10 @@
 		<test.excludedGroups>integration</test.excludedGroups>
 	</properties>
 	<dependencies>
-		<!-- Web 依赖 -->
+		<!-- Web 依赖 (Spring Boot 4 推荐使用 webmvc) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-web</artifactId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
 
 		<!-- Springdoc OpenAPI (替代 Knife4j) -->

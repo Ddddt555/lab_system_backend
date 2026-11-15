@@ -67,10 +67,6 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
-knife4j:
-  enable: true
-  production: ${KNIFE4J_PRODUCTION:false}
-
 minio:
   endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
   access-key: ${MINIO_ACCESS_KEY:minioadmin}

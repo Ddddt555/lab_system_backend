@@ -11,10 +11,12 @@ app:
     # 管理员首次启动时的初始密码（若不配置则随机生成并打印在日志）
     init-password: ${ADMIN_INIT_PASSWORD:}
 
-# 生产环境关闭接口文档
-knife4j:
-  enable: false
-  production: true
+# 生产环境关闭接口文档 (Springdoc)
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
 
 # 生产环境必须配置明确的跨域白名单（无默认值，必须显式配置）
 cors:
