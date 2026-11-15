@@ -179,17 +179,21 @@ public class AuthServiceImpl implements AuthService {
             uri = request.getRequestURI();
         }
 
-        // 写入数据库
-        SysLog log = new SysLog();
-        log.setOperator(operator);
-        log.setAction(action);
-        log.setCreateTime(LocalDateTime.now());
-        log.setSuccess(action.contains("成功") ? 1 : 0);
-        log.setIp(ip);
-        log.setMethod(method);
-        log.setUri(uri);
-        log.setCostMs(0L);
-        logMapper.insert(log);
+        // 写入数据库，加入 try-catch 防止审计日志记录失败阻断登录
+        try {
+            SysLog sysLog = new SysLog();
+            sysLog.setOperator(operator);
+            sysLog.setAction(action);
+            sysLog.setCreateTime(LocalDateTime.now());
+            sysLog.setSuccess(action.contains("成功") ? 1 : 0);
+            sysLog.setIp(ip);
+            sysLog.setMethod(method);
+            sysLog.setUri(uri);
+            sysLog.setCostMs(0L);
+            logMapper.insert(sysLog);
+        } catch (Exception e) {
+            securityLog.error("保存登录审计日志失败，不影响登录主流程。操作人: {}, 动作: {}", operator, action, e);
+        }
 
         // 写入独立安全日志
         if (action.contains("成功")) {

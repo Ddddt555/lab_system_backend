@@ -1,7 +1,5 @@
 package com.lab.labsystem.aspect;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.lab.labsystem.entity.SysLog;
 import com.lab.labsystem.mapper.SysLogMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -46,28 +44,29 @@ public class SysLogCleanTask {
             // 抢不到锁说明其他节点正在清理，直接跳过本次
             locked = lock.tryLock(0, 10, TimeUnit.MINUTES);
             if (!locked) {
-                log.info("⏳ [定时任务] 其他节点正在清理系统日志，当前节点跳过。");
+                log.info("[定时任务] 其他节点正在清理系统日志，当前节点跳过。");
                 return;
             }
 
             if (retentionDays <= 0) {
-                log.warn("⚠️ [定时任务] 日志保留天数配置非法（{}），跳过本次清理。", retentionDays);
+                log.warn("[定时任务] 日志保留天数配置非法（{}），跳过本次清理。", retentionDays);
                 return;
             }
 
             LocalDateTime cutoff = LocalDateTime.now().minusDays(retentionDays);
-            int deleted = logMapper.delete(
-                    new QueryWrapper<SysLog>().lt("create_time", cutoff));
+            
+            // 调用物理删除方法，真正从数据库中移除记录，回收磁盘空间
+            int deleted = logMapper.physicalDeleteOlderThan(cutoff);
 
-            log.info("🧹 [定时任务] 系统日志清理完成：保留 {} 天，删除 {} 条（截止 {}）。",
+            log.info("[定时任务] 系统日志清理完成：保留 {} 天，物理删除 {} 条（截止 {}）。",
                     retentionDays, deleted, cutoff);
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.warn("❌ [定时任务] 日志清理被中断: {}", e.getMessage());
+            log.warn("[定时任务] 日志清理被中断: {}", e.getMessage());
         } catch (Exception e) {
             // 清理失败不能影响主业务，仅记录
-            log.error("❌ [定时任务] 日志清理失败", e);
+            log.error("[定时任务] 日志清理失败", e);
         } finally {
             if (locked && lock.isHeldByCurrentThread()) {
                 lock.unlock();

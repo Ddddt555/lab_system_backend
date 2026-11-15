@@ -1,7 +1,5 @@
 package com.lab.labsystem.aspect;
 
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
-import com.lab.labsystem.entity.SysLog;
 import com.lab.labsystem.mapper.SysLogMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -11,6 +9,7 @@ import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.LocalDateTime;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -22,12 +21,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * 系统日志保留期清理的单元测试。
- *
- * <p>重点验证三件事：多实例下抢不到锁不执行、保留天数非法时不执行、
- * 以及删除条件确实是按时间切（而不是整表清空）。
- */
 class SysLogCleanTaskTest {
 
     private SysLogMapper logMapper;
@@ -48,19 +41,21 @@ class SysLogCleanTaskTest {
     }
 
     @Test
-    @DisplayName("抢到锁时按时间条件删除，并释放锁")
+    @DisplayName("抢到锁时按时间条件进行物理删除，并释放锁")
     void deletesExpiredLogs() throws Exception {
         when(lock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(true);
         when(lock.isHeldByCurrentThread()).thenReturn(true);
-        when(logMapper.delete(any())).thenReturn(42);
+        when(logMapper.physicalDeleteOlderThan(any())).thenReturn(42);
 
         task.cleanExpiredLogs();
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<Wrapper<SysLog>> captor = ArgumentCaptor.forClass(Wrapper.class);
-        verify(logMapper).delete(captor.capture());
-        // 必须是按 create_time 过滤，而不是无条件清空
-        assertTrue(captor.getValue().getSqlSegment().contains("create_time"));
+        // 验证调用了物理删除，且传入的时间参数在 180 天前左右
+        ArgumentCaptor<LocalDateTime> captor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(logMapper).physicalDeleteOlderThan(captor.capture());
+        
+        LocalDateTime expectedCutoff = LocalDateTime.now().minusDays(180);
+        assertTrue(captor.getValue().isAfter(expectedCutoff.minusMinutes(1)));
+        assertTrue(captor.getValue().isBefore(expectedCutoff.plusMinutes(1)));
 
         verify(lock).unlock();
     }
@@ -72,7 +67,7 @@ class SysLogCleanTaskTest {
 
         task.cleanExpiredLogs();
 
-        verify(logMapper, never()).delete(any());
+        verify(logMapper, never()).physicalDeleteOlderThan(any());
         verify(lock, never()).unlock();
     }
 
@@ -85,6 +80,6 @@ class SysLogCleanTaskTest {
 
         task.cleanExpiredLogs();
 
-        verify(logMapper, never()).delete(any());
+        verify(logMapper, never()).physicalDeleteOlderThan(any());
     }
 }
