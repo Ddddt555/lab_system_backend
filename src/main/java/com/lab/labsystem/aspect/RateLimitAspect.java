@@ -2,6 +2,7 @@ package com.lab.labsystem.aspect;
 
 import com.lab.labsystem.annotation.RateLimit;
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -38,24 +39,35 @@ public class RateLimitAspect {
 
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
         String methodName = signature.getMethod().getName();
-        String className = signature.getDeclaringType().getSimpleName();
+        // 使用全限定类名（包含包名），避免不同包下同名 Controller 的冲突
+        String className = signature.getDeclaringType().getName();
         double qps = rateLimit.qps();
 
-        // 将类名加入 Key 中，防止不同 Controller 的同名方法共享限流器
-        String key = "rate_limit:" + className + ":" + methodName + ":" + userNo;
+        // 拦截非法的 QPS 配置
+        if (qps <= 0) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR.getCode(), "接口限流配置非法：QPS 必须大于 0");
+        }
 
-        RRateLimiter rateLimiter = redissonClient.getRateLimiter(key);
+        long rate;
+        long interval;
         
-        long rate = (long) qps;
-        long interval = 1;
-
-        // 处理 qps 小于 1 的场景，例如 0.5 转换为 1次/2秒，防止 (long) 强转后变成 0 导致限流异常
-        if (rate < 1) {
+        // 处理精度问题：为了兼容小数的 QPS，采用放大时间窗口的方式
+        if (qps >= 1) {
+            // 例如 qps = 1.5，则转为 15 次 / 10 秒
+            rate = Math.round(qps * 10);
+            interval = 10;
+        } else {
+            // 例如 qps = 0.5，则转为 1 次 / 2 秒
             rate = 1;
             interval = (long) Math.ceil(1.0 / qps);
         }
 
-        // RateType.OVERALL 表示所有实例共享这个令牌桶
+        // 将 qps 的值拼入 Key 中，一旦代码中配置变更，就会生成新 Key，强制应用新限流规则
+        String key = "rate_limit:" + className + ":" + methodName + ":" + userNo + ":" + qps;
+
+        RRateLimiter rateLimiter = redissonClient.getRateLimiter(key);
+        
+        // 由于 Key 已经包含了配置信息，这里的 trySetRate 只会对新 Key 生效，不会产生旧配置残留
         rateLimiter.trySetRate(RateType.OVERALL, rate, interval, RateIntervalUnit.SECONDS);
 
         if (!rateLimiter.tryAcquire()) {
