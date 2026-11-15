@@ -76,6 +76,9 @@ public class SecurityHardeningTest {
         jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 1");
 
         jdbcTemplate.update("UPDATE exp_session SET remaining_seats = capacity");
+        
+        // 确保 admin 账号不会因为初始密码拦截而导致测试接口调用失败
+        jdbcTemplate.update("UPDATE sys_admin SET must_change_password = 0");
 
         System.out.println("[Prep] 正在获取真实的业务数据...");
         List<Map<String, Object>> classes = jdbcTemplate.queryForList(
