@@ -28,7 +28,6 @@ public class GlobalExceptionHandler {
         return "dev".equalsIgnoreCase(activeProfile) || "test".equalsIgnoreCase(activeProfile);
     }
 
-    // 专门处理 ResponseStatusException，保留其原本的 HTTP 状态码
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<Result<String>> handleResponseStatusException(ResponseStatusException e) {
         log.warn("请求状态异常: {}", e.getMessage());
@@ -41,17 +40,28 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Result<String>> handleBusinessException(BusinessException e) {
         log.warn("业务逻辑异常: [{}] {}", e.getCode(), e.getMessage());
         
-        HttpStatus httpStatus = HttpStatus.BAD_REQUEST; // 默认 400
-        if (e.getCode() == 401 || e.getCode() == 40101) {
-            httpStatus = HttpStatus.UNAUTHORIZED; // 401
-        } else if (e.getCode() == 403) {
-            httpStatus = HttpStatus.FORBIDDEN; // 403
-        } else if (e.getCode() == 404 || e.getCode() == 40005) {
-            httpStatus = HttpStatus.NOT_FOUND; // 404
-        } else if (e.getCode() == 429) {
-            httpStatus = HttpStatus.TOO_MANY_REQUESTS; // 429
-        } else if (e.getCode() >= 500) {
-            httpStatus = HttpStatus.INTERNAL_SERVER_ERROR; // 500
+        HttpStatus httpStatus;
+        
+        // 优先使用强类型枚举绑定的 HttpStatus
+        if (e.getErrorCode() != null) {
+            httpStatus = e.getErrorCode().getHttpStatus();
+        } else {
+            // 兜底：兼容直接用 int code 抛出异常的旧逻辑（如 new BusinessException(429, "...")）
+            httpStatus = HttpStatus.BAD_REQUEST;
+            int code = e.getCode();
+            if (code == 401 || code == 40101) {
+                httpStatus = HttpStatus.UNAUTHORIZED;
+            } else if (code == 403) {
+                httpStatus = HttpStatus.FORBIDDEN;
+            } else if (code == 404 || code == 40005) {
+                httpStatus = HttpStatus.NOT_FOUND;
+            } else if (code == 409 || code == 40006) { 
+                httpStatus = HttpStatus.CONFLICT;
+            } else if (code == 429) {
+                httpStatus = HttpStatus.TOO_MANY_REQUESTS;
+            } else if (code >= 500) {
+                httpStatus = HttpStatus.INTERNAL_SERVER_ERROR;
+            }
         }
 
         return ResponseEntity.status(httpStatus).body(Result.error(e.getCode(), e.getMessage()));

@@ -7,37 +7,45 @@ package com.lab.labsystem.common;
 public class BusinessException extends RuntimeException {
 
     private final int code;
+    private final ErrorCode errorCode;
 
     public BusinessException(String message) {
         super(message);
         this.code = ErrorCode.BAD_REQUEST.getCode();
+        this.errorCode = ErrorCode.BAD_REQUEST;
     }
 
     public BusinessException(ErrorCode errorCode) {
         super(errorCode.getMessage());
         this.code = errorCode.getCode();
+        this.errorCode = errorCode;
     }
 
     public BusinessException(int code, String message) {
         super(message);
         this.code = code;
+        this.errorCode = null; // 兼容直接传 int code 的情况
     }
 
-    /**
-     * 使用预定义错误码抛出业务异常。
-     */
+    public BusinessException(ErrorCode errorCode, String customMsg) {
+        super(customMsg);
+        this.code = errorCode.getCode();
+        this.errorCode = errorCode;
+    }
+
     public static BusinessException of(ErrorCode errorCode) {
-        return new BusinessException(errorCode.getCode(), errorCode.getMessage());
+        return new BusinessException(errorCode);
     }
 
-    /**
-     * 使用预定义错误码及自定义提示语抛出业务异常。
-     */
     public static BusinessException of(ErrorCode errorCode, String customMsg) {
-        return new BusinessException(errorCode.getCode(), customMsg);
+        return new BusinessException(errorCode, customMsg);
     }
 
     public int getCode() {
         return code;
+    }
+
+    public ErrorCode getErrorCode() {
+        return errorCode;
     }
 }
