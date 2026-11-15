@@ -38,14 +38,25 @@ public class RateLimitAspect {
 
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
         String methodName = signature.getMethod().getName();
+        String className = signature.getDeclaringType().getSimpleName();
         double qps = rateLimit.qps();
 
-        String key = "rate_limit:" + methodName + ":" + userNo;
+        // 将类名加入 Key 中，防止不同 Controller 的同名方法共享限流器
+        String key = "rate_limit:" + className + ":" + methodName + ":" + userNo;
 
         RRateLimiter rateLimiter = redissonClient.getRateLimiter(key);
         
+        long rate = (long) qps;
+        long interval = 1;
+
+        // 处理 qps 小于 1 的场景，例如 0.5 转换为 1次/2秒，防止 (long) 强转后变成 0 导致限流异常
+        if (rate < 1) {
+            rate = 1;
+            interval = (long) Math.ceil(1.0 / qps);
+        }
+
         // RateType.OVERALL 表示所有实例共享这个令牌桶
-        rateLimiter.trySetRate(RateType.OVERALL, (long) qps, 1, RateIntervalUnit.SECONDS);
+        rateLimiter.trySetRate(RateType.OVERALL, rate, interval, RateIntervalUnit.SECONDS);
 
         if (!rateLimiter.tryAcquire()) {
             // 抛出业务异常，交由全局异常处理器转换为真实的 HTTP 429 状态码
