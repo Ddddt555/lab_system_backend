@@ -90,7 +90,7 @@ services:
       retries: 5
       start_period: 30s
 
-  # 🛑【新增】Prometheus 监控采集
+  # Prometheus 监控采集
   prometheus:
     image: prom/prometheus:latest
     container_name: labsystem-prometheus-test
@@ -106,7 +106,7 @@ services:
     depends_on:
       - backend
 
-  # 🛑【新增】Grafana 监控大盘
+  # Grafana 监控大盘
   grafana:
     image: grafana/grafana:latest
     container_name: labsystem-grafana-test
@@ -127,7 +127,8 @@ services:
     container_name: labsystem-frontend-test
     restart: always
     ports:
-      - "8081:80"
+      # 将宿主机的 8081 端口映射到容器的 8080 端口（非 root 镜像默认监听 8080）
+      - "8081:8080"
     depends_on:
       backend:
         condition: service_healthy

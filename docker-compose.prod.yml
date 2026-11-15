@@ -182,7 +182,8 @@ services:
     container_name: labsystem-frontend-prod
     restart: always
     ports:
-      - "80:80"
+      # 将宿主机的 80 端口映射到容器的 8080 端口（非 root 镜像默认监听 8080）
+      - "80:8080"
     volumes:
       - ./logs/nginx:/var/log/nginx
     depends_on:

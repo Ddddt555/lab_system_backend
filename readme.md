@@ -6,15 +6,15 @@
 
 ### 1. 架构与工程化
 - **前后端分离**：后端提供 RESTful API，前端独立打包部署。
-- **容器化部署**：全栈 Docker 化，提供 `docker-compose.prod.yml` 一键拉起全套环境。
-- **CI/CD 自动化**：集成 GitHub Actions，自动执行测试、代码规范检查、构建镜像并推送至 Docker Hub。
+- **容器化部署**：全栈 Docker 化，提供 `docker-compose.prod.yml` 一键拉起全套环境。前后端容器均采用非 root 用户运行，收敛运行权限。
+- **CI/CD 自动化**：集成 GitHub Actions，自动执行前后端测试、代码规范检查、构建镜像并推送至 Docker Hub。
 - **多环境隔离**：严格的 `dev` 与 `prod` 配置隔离，敏感信息全量环境变量注入。
 
 ### 2. 安全与稳定性 (Security & Stability)
-- **认证与授权**：双 Token 机制（Access + Refresh），无感刷新；设备指纹强校验；基于 Redis 全原子 Lua 脚本与幂等缓存防止重放攻击；基于 `@RequireRole` 的切面级权限控制。
+- **认证与授权**：双 Token 机制（Access + Refresh），无感刷新；设备指纹强校验；基于 Redis 全原子 Lua 脚本与幂等缓存防止重放攻击；基于 `@RequireRole` 的切面级权限控制。敏感操作（签到、评分等）统一采用 JSON Body 传参，避免凭据进入访问日志。
 - **接口防爆破**：登录失败锁定策略、图形验证码、Redisson 分布式限流。
-- **文件安全**：严格的后缀白名单 + 文件头魔数校验 + ZIP 炸弹防护；MinIO 对象级权限代理访问。
-- **数据一致性**：分布式锁防超卖、乐观锁兜底、Flyway 严格把控数据库版本。
+- **文件安全**：严格的后缀白名单 + 文件头魔数校验 + ZIP 炸弹防护；MinIO 对象级权限代理访问；下载/预览采用一次性票据（Ticket）鉴权。
+- **数据一致性**：排课与预约防超卖/防冲突引入分布式锁与严格事务边界；乐观锁兜底；Flyway 严格把控数据库版本。
 - **监控安全**：Prometheus、Alertmanager、Grafana 端口默认仅绑定本机（`127.0.0.1`），需通过反向代理认证访问；密码强制环境变量注入，杜绝默认弱口令。
 
 ### 3. 业务闭环
@@ -28,7 +28,8 @@
 - **数据库与中间件**：MySQL 8.0, Redis 7 (Redisson), MinIO
 - **认证与安全**：Spring Security Crypto (BCrypt), JJWT
 - **监控与日志**：Spring Boot Actuator, Prometheus, Micrometer, TraceId 全链路追踪
-- **部署与运维**：Docker, Docker Compose, Nginx, GitHub Actions
+- **测试框架**：JUnit 5, Mockito, TestRestTemplate (后端), Vitest (前端)
+- **部署与运维**：Docker, Docker Compose, Nginx (非 root 镜像), GitHub Actions
 
 ---
 
@@ -73,6 +74,12 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 *(待所有容器状态变为 `healthy` 后即可访问。)*
+
+> **注意：Nginx 日志目录权限**
+> 由于前端容器采用了非 root 用户运行，如果启动后发现前端容器频繁重启，通常是因为宿主机挂载的 `./logs/nginx` 目录没有写入权限。请在宿主机执行以下命令授予权限：
+> ```bash
+> chmod -R 777 ./logs/nginx
+> ```
 
 4. 访问系统
 - **前端页面**：`http://localhost` （或配置的域名）
@@ -127,20 +134,23 @@ npm run dev
 ```
 
 - 访问 `http://localhost:5173` 进行开发调试。
+- 运行前端单元测试：`npm run test`
 
 ---
 
 ## 目录结构说明
 
-    ├── .github/workflows    # CI/CD 自动化流水线配置
-    ├── db/init              # MySQL 首次启动自动化初始化脚本
-    ├── scripts/             # 备份与恢复脚本 (sh / ps1)
-    ├── src/main/java        # 核心业务代码
-    │   ├── aspect           # AOP 切面 (日志、限流、鉴权)
-    │   ├── config           # 各项配置 (安全、拦截器、WebSocket、系统初始化)
-    │   ├── controller       # RESTful 接口层
-    │   ├── service          # 业务逻辑层
-    │   └── mapper           # 数据访问层
-    ├── src/main/resources   # 配置文件及 Flyway 迁移脚本
-    ├── docker-compose.yml   # 本地开发环境容器编排 (MySQL/Redis/MinIO)
-    └── docker-compose.prod.yml # 生产环境全栈编排 (包含前后端及监控)
+```text
+├── .github/workflows    # CI/CD 自动化流水线配置
+├── db/init              # MySQL 首次启动自动化初始化脚本
+├── scripts/             # 备份与恢复脚本 (sh / ps1)
+├── src/main/java        # 核心业务代码
+│   ├── aspect           # AOP 切面 (日志、限流、鉴权)
+│   ├── config           # 各项配置 (安全、拦截器、WebSocket、系统初始化)
+│   ├── controller       # RESTful 接口层
+│   ├── service          # 业务逻辑层
+│   └── mapper           # 数据访问层
+├── src/main/resources   # 配置文件及 Flyway 迁移脚本
+├── docker-compose.yml   # 本地开发环境容器编排 (MySQL/Redis/MinIO)
+└── docker-compose.prod.yml # 生产环境全栈编排 (包含前后端及监控)
+```
