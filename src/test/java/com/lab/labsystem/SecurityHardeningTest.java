@@ -200,8 +200,10 @@ public class SecurityHardeningTest {
         String getUrlApi = "/api/report/download-url/" + otherFileName;
         ResponseEntity<Result> linkResponse = restTemplate.exchange(getUrlApi, HttpMethod.GET, entity, Result.class);
         
-        assertEquals(HttpStatus.OK, linkResponse.getStatusCode());
-        assertEquals(400, linkResponse.getBody().getCode());
+        // 越权获取下载链接应直接返回真实的 HTTP 403
+        assertEquals(HttpStatus.FORBIDDEN, linkResponse.getStatusCode());
+        assertNotNull(linkResponse.getBody());
+        assertEquals(403, linkResponse.getBody().getCode());
         assertEquals("没有权限！", linkResponse.getBody().getMsg());
 
         String downloadApi = "/api/report/download/" + otherFileName;
