@@ -25,7 +25,10 @@ import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.service.teacher.TeacherSessionService;
 import com.lab.labsystem.vo.SessionVO;
 import com.lab.labsystem.vo.StudentVO;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -37,6 +40,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -50,6 +54,9 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
     private final StudentBookingMapper bookingMapper;
     private final StudentMapper studentMapper;
     private final NumberGenerator numberGenerator;
+
+    @Autowired
+    private RedissonClient redissonClient;
 
     // 节次白名单
     private static final List<String> VALID_PERIODS = Arrays.asList("1-2节", "3-4节", "5-6节", "7-8节", "9-10节");
@@ -121,38 +128,61 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
             throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：排课时间不能早于当前时间！");
         }
 
-        // 6. 三重冲突校验
-        QueryWrapper<ExpSession> conflictQw = new QueryWrapper<ExpSession>()
-                .eq("semester", session.getSemester())
-                .eq("week_num", session.getWeekNum())
-                .eq("day_of_week", session.getDayOfWeek())
-                .eq("period", session.getPeriod());
+        // 6. 获取分布式锁，防止并发排课导致冲突
+        String lockKey = "lock:session:add:" + session.getSemester() + ":" + session.getWeekNum() 
+                + ":" + session.getDayOfWeek() + ":" + session.getPeriod();
+        RLock lock = redissonClient.getLock(lockKey);
 
-        List<ExpSession> existSessions = sessionMapper.selectList(conflictQw);
-        for (ExpSession exist : existSessions) {
-            if (exist.getWorkNo().equals(workNo)) {
-                throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：您在【第" + session.getWeekNum() + "周 "
-                        + weekDayName(session.getDayOfWeek()) + " " + session.getPeriod() + "】已有其他排课！");
+        boolean isLocked = false;
+        try {
+            // 尝试获取锁，最多等待 3 秒，锁过期时间 10 秒（防止死锁）
+            isLocked = lock.tryLock(3, 10, TimeUnit.SECONDS);
+            if (!isLocked) {
+                throw BusinessException.of(ErrorCode.CONCURRENT_CONFLICT, "当前时段排课人数较多，请稍后重试！");
             }
-            if (exist.getRoomNo().equals(session.getRoomNo())) {
-                throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：实验室【" + room.getRoomName() + "】在【第"
-                        + session.getWeekNum() + "周 " + weekDayName(session.getDayOfWeek())
-                        + " " + session.getPeriod() + "】已被占用！");
+
+            // 7. 三重冲突校验
+            QueryWrapper<ExpSession> conflictQw = new QueryWrapper<ExpSession>()
+                    .eq("semester", session.getSemester())
+                    .eq("week_num", session.getWeekNum())
+                    .eq("day_of_week", session.getDayOfWeek())
+                    .eq("period", session.getPeriod());
+
+            List<ExpSession> existSessions = sessionMapper.selectList(conflictQw);
+            for (ExpSession exist : existSessions) {
+                if (exist.getWorkNo().equals(workNo)) {
+                    throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：您在【第" + session.getWeekNum() + "周 "
+                            + weekDayName(session.getDayOfWeek()) + " " + session.getPeriod() + "】已有其他排课！");
+                }
+                if (exist.getRoomNo().equals(session.getRoomNo())) {
+                    throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：实验室【" + room.getRoomName() + "】在【第"
+                            + session.getWeekNum() + "周 " + weekDayName(session.getDayOfWeek())
+                            + " " + session.getPeriod() + "】已被占用！");
+                }
+                ExpProject existProject = projectMapper.selectById(exist.getProjectNo());
+                if (existProject != null && existProject.getClassNo() != null
+                        && existProject.getClassNo().equals(project.getClassNo())) {
+                    throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：该教学班在此时段已经有排课了！");
+                }
             }
-            ExpProject existProject = projectMapper.selectById(exist.getProjectNo());
-            if (existProject != null && existProject.getClassNo() != null
-                    && existProject.getClassNo().equals(project.getClassNo())) {
-                throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：该教学班在此时段已经有排课了！");
+
+            // 8. 生成场次号、计算绝对时间、初始剩余机位
+            session.setSessionNo(numberGenerator.generateSessionNo());
+            session.setSessionTime(absoluteTime);
+            session.setRemainingSeats(session.getCapacity());
+
+            sessionMapper.insert(session);
+            return "场次安排成功！场次号为：" + session.getSessionNo();
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw BusinessException.of(ErrorCode.SYSTEM_ERROR, "系统繁忙，请稍后重试！");
+        } finally {
+            // 确保当前线程持有锁时才释放，防止释放别人的锁
+            if (isLocked && lock.isHeldByCurrentThread()) {
+                lock.unlock();
             }
         }
-
-        // 7. 生成场次号、计算绝对时间、初始剩余机位
-        session.setSessionNo(numberGenerator.generateSessionNo());
-        session.setSessionTime(absoluteTime);
-        session.setRemainingSeats(session.getCapacity());
-
-        sessionMapper.insert(session);
-        return "场次安排成功！场次号为：" + session.getSessionNo();
     }
 
     @Override
