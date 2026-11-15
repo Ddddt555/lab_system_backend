@@ -2,6 +2,8 @@ package com.lab.labsystem.controller;
 
 import java.util.List;
 
+import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -85,7 +87,7 @@ public class ReportController {
      */
     private Result<String> buildFileUrl(String fileName, String action, HttpServletRequest request) {
         if (!permissionService.hasFilePermission(fileName, request)) {
-            return Result.error("没有权限！");
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "没有权限！");
         }
 
         String baseUrl = request.getScheme() + "://" + request.getServerName()

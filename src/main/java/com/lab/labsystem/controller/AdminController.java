@@ -3,6 +3,8 @@ package com.lab.labsystem.controller;
 import java.io.IOException;
 import java.util.List;
 
+import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.dto.request.UpdatePasswordDTO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -221,10 +223,10 @@ public class AdminController {
 
     @PostMapping("/update-password")
     public Result<String> updatePassword(@Valid @RequestBody UpdatePasswordDTO dto) {
-        if (adminService.updatePassword(dto.getOldPassword(), dto.getNewPassword())) {
-            return Result.success("密码修改成功，请重新登录！");
+        if (!adminService.updatePassword(dto.getOldPassword(), dto.getNewPassword())) {
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "原密码错误！");
         }
-        return Result.error("原密码错误！");
+        return Result.success("密码修改成功，请重新登录！");
     }
 
     @GetMapping("/labs")
