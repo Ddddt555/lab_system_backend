@@ -27,6 +27,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -68,9 +69,9 @@ class TeacherSessionServiceImplTest {
         redissonClient = mock(RedissonClient.class);
         lock = mock(RLock.class);
 
-        // 模拟获取锁成功
+        // 模拟获取锁成功（注意：去掉了 leaseTime 参数，只 Mock 两个参数的方法）
         when(redissonClient.getLock(anyString())).thenReturn(lock);
-        when(lock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(true);
+        when(lock.tryLock(anyLong(), any(TimeUnit.class))).thenReturn(true);
         when(lock.isHeldByCurrentThread()).thenReturn(true);
 
         service = new TeacherSessionServiceImpl(
@@ -272,7 +273,9 @@ class TeacherSessionServiceImplTest {
         ExpProject other = new ExpProject();
         other.setProjectNo("P999");
         other.setClassNo("C001");
-        when(projectMapper.selectById("P999")).thenReturn(other);
+        
+        // 业务代码已改为 selectBatchIds 批量查询，这里同步修改 Mock
+        when(projectMapper.selectBatchIds(any())).thenReturn(Collections.singletonList(other));
 
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.addSession(request("P001", "R001", 30), "T001"));

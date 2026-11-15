@@ -135,8 +135,8 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
 
         boolean isLocked = false;
         try {
-            // 尝试获取锁，最多等待 3 秒，锁过期时间 10 秒（防止死锁）
-            isLocked = lock.tryLock(3, 10, TimeUnit.SECONDS);
+            // 尝试获取锁，最多等待 3 秒。不指定 leaseTime，开启 Redisson 的 Watchdog（看门狗）自动续期
+            isLocked = lock.tryLock(3, TimeUnit.SECONDS);
             if (!isLocked) {
                 throw BusinessException.of(ErrorCode.CONCURRENT_CONFLICT, "当前时段排课人数较多，请稍后重试！");
             }
@@ -149,20 +149,29 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
                     .eq("period", session.getPeriod());
 
             List<ExpSession> existSessions = sessionMapper.selectList(conflictQw);
-            for (ExpSession exist : existSessions) {
-                if (exist.getWorkNo().equals(workNo)) {
-                    throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：您在【第" + session.getWeekNum() + "周 "
-                            + weekDayName(session.getDayOfWeek()) + " " + session.getPeriod() + "】已有其他排课！");
+            if (!existSessions.isEmpty()) {
+                // 先检查教师和实验室冲突，无需查库
+                for (ExpSession exist : existSessions) {
+                    if (exist.getWorkNo().equals(workNo)) {
+                        throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：您在【第" + session.getWeekNum() + "周 "
+                                + weekDayName(session.getDayOfWeek()) + " " + session.getPeriod() + "】已有其他排课！");
+                    }
+                    if (exist.getRoomNo().equals(session.getRoomNo())) {
+                        throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：实验室【" + room.getRoomName() + "】在【第"
+                                + session.getWeekNum() + "周 " + weekDayName(session.getDayOfWeek())
+                                + " " + session.getPeriod() + "】已被占用！");
+                    }
                 }
-                if (exist.getRoomNo().equals(session.getRoomNo())) {
-                    throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：实验室【" + room.getRoomName() + "】在【第"
-                            + session.getWeekNum() + "周 " + weekDayName(session.getDayOfWeek())
-                            + " " + session.getPeriod() + "】已被占用！");
-                }
-                ExpProject existProject = projectMapper.selectById(exist.getProjectNo());
-                if (existProject != null && existProject.getClassNo() != null
-                        && existProject.getClassNo().equals(project.getClassNo())) {
-                    throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：该教学班在此时段已经有排课了！");
+
+                // 再检查教学班冲突，批量查询项目消除 N+1
+                List<String> existProjectNos = existSessions.stream()
+                        .map(ExpSession::getProjectNo).distinct().collect(Collectors.toList());
+                List<ExpProject> existProjects = projectMapper.selectBatchIds(existProjectNos);
+                for (ExpProject existProject : existProjects) {
+                    if (existProject != null && existProject.getClassNo() != null
+                            && existProject.getClassNo().equals(project.getClassNo())) {
+                        throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：该教学班在此时段已经有排课了！");
+                    }
                 }
             }
 
@@ -178,7 +187,7 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
             Thread.currentThread().interrupt();
             throw BusinessException.of(ErrorCode.SYSTEM_ERROR, "系统繁忙，请稍后重试！");
         } finally {
-            // 确保当前线程持有锁时才释放，防止释放别人的锁
+            // 确保当前线程持有锁时才释放
             if (isLocked && lock.isHeldByCurrentThread()) {
                 lock.unlock();
             }
