@@ -15,6 +15,7 @@ import com.lab.labsystem.service.auth.TokenService;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -46,6 +47,7 @@ public class AdminAccountServiceImpl implements AdminAccountService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public String resetPassword(String account, String role) {
         String defaultHash = passwordEncoder.encode(DEFAULT_PASSWORD);
 

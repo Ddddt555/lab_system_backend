@@ -242,24 +242,30 @@ public class TokenServiceImpl implements TokenService {
     public void revokeAllDevices(String userNo) {
         if (userNo == null || userNo.isEmpty()) return;
         
-        String userDevicesKey = USER_DEVICES_PREFIX + userNo;
-        // 获取该用户所有在线设备的 deviceId
-        Set<String> deviceIds = stringRedisTemplate.opsForZSet().range(userDevicesKey, 0, -1);
-        
-        if (deviceIds != null && !deviceIds.isEmpty()) {
-            List<String> keysToDelete = new ArrayList<>();
-            for (String deviceId : deviceIds) {
-                String hashTag = "{" + userNo + ":" + deviceId + "}";
-                keysToDelete.add(REFRESH_TOKEN_PREFIX + hashTag);
-                keysToDelete.add(IDEMPOTENT_PREFIX + hashTag);
+        try {
+            String userDevicesKey = USER_DEVICES_PREFIX + userNo;
+            // 获取该用户所有在线设备的 deviceId
+            Set<String> deviceIds = stringRedisTemplate.opsForZSet().range(userDevicesKey, 0, -1);
+            
+            if (deviceIds != null && !deviceIds.isEmpty()) {
+                List<String> keysToDelete = new ArrayList<>();
+                for (String deviceId : deviceIds) {
+                    String hashTag = "{" + userNo + ":" + deviceId + "}";
+                    keysToDelete.add(REFRESH_TOKEN_PREFIX + hashTag);
+                    keysToDelete.add(IDEMPOTENT_PREFIX + hashTag);
+                }
+                // 批量删除所有设备的 Token 和 幂等缓存
+                stringRedisTemplate.delete(keysToDelete);
             }
-            // 批量删除所有设备的 Token 和 幂等缓存
-            stringRedisTemplate.delete(keysToDelete);
+            
+            // 删除设备列表
+            stringRedisTemplate.delete(userDevicesKey);
+            securityLog.warn("【安全保护】用户 {} 的密码发生变更，已强制撤销其所有设备的会话", userNo);
+        } catch (Exception e) {
+            securityLog.error("【撤销会话异常】强制清理用户 {} 的会话失败，将中断本次操作", userNo, e);
+            // 抛出异常，确保外层带有 @Transactional 的修改密码/删除逻辑能够回滚数据库
+            throw BusinessException.of(ErrorCode.SYSTEM_ERROR, "系统缓存异常，操作失败，请稍后重试！");
         }
-        
-        // 删除设备列表
-        stringRedisTemplate.delete(userDevicesKey);
-        securityLog.warn("【安全保护】用户 {} 的密码发生变更，已强制撤销其所有设备的会话", userNo);
     }
 
     @Override

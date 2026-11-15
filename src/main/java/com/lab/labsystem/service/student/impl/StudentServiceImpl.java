@@ -24,6 +24,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -162,7 +163,7 @@ public class StudentServiceImpl implements StudentService {
     public void deleteStudent(String studentNo) {
         studentMapper.deleteById(studentNo);
         
-        //强制该学生所有设备下线，立即失效所有 AccessToken 和 RefreshToken
+        // 同步撤销该学生所有设备的登录会话，使其 Token 立即失效
         tokenService.revokeAllDevices(studentNo);
     }
 
@@ -232,6 +233,7 @@ public class StudentServiceImpl implements StudentService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public String changePassword(String studentNo, String oldPwd, String newPwd) {
         String errorMsg = PasswordValidator.validate(newPwd);
         if (errorMsg != null) {

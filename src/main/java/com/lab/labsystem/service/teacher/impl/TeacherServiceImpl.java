@@ -21,6 +21,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -121,6 +122,7 @@ public class TeacherServiceImpl implements TeacherService {
     }
     
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deleteTeacher(String workNo) {
         teacherMapper.deleteById(workNo);
         
@@ -129,6 +131,7 @@ public class TeacherServiceImpl implements TeacherService {
     }
     
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public String changePassword(String workNo, String oldPwd, String newPwd) {
         String errorMsg = PasswordValidator.validate(newPwd);
         if (errorMsg != null) {

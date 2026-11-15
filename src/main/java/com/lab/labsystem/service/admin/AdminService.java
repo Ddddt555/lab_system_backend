@@ -3,6 +3,7 @@ package com.lab.labsystem.service.admin;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.lab.labsystem.entity.SysAdmin;
@@ -34,6 +35,7 @@ public class AdminService {
         return admin != null && passwordEncoder.matches(password, admin.getPassword());
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public boolean updatePassword(String oldPassword, String newPassword) {
         String errorMsg = PasswordValidator.validate(newPassword);
         if (errorMsg != null) {
