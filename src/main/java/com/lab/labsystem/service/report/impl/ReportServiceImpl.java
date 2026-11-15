@@ -13,6 +13,9 @@ import com.lab.labsystem.entity.ExpReport;
 import com.lab.labsystem.entity.Major;
 import com.lab.labsystem.entity.Student;
 import com.lab.labsystem.entity.TeachClass;
+import com.lab.labsystem.entity.StudentTeachClass;
+import com.lab.labsystem.entity.ExpSession;
+import com.lab.labsystem.entity.StudentBooking;
 import com.lab.labsystem.mapper.AdminClassMapper;
 import com.lab.labsystem.mapper.DepartmentMapper;
 import com.lab.labsystem.mapper.ExpProjectMapper;
@@ -20,6 +23,9 @@ import com.lab.labsystem.mapper.ExpReportMapper;
 import com.lab.labsystem.mapper.MajorMapper;
 import com.lab.labsystem.mapper.StudentMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
+import com.lab.labsystem.mapper.StudentTeachClassMapper;
+import com.lab.labsystem.mapper.ExpSessionMapper;
+import com.lab.labsystem.mapper.StudentBookingMapper;
 import com.lab.labsystem.service.file.MinioService;
 import com.lab.labsystem.service.report.ReportService;
 import com.lab.labsystem.service.teacher.TeacherScoreService;
@@ -62,6 +68,9 @@ public class ReportServiceImpl implements ReportService {
     private final DepartmentMapper departmentMapper;
     private final ExpProjectMapper projectMapper;
     private final TeachClassMapper teachClassMapper;
+    private final StudentTeachClassMapper studentTeachClassMapper;
+    private final ExpSessionMapper expSessionMapper;
+    private final StudentBookingMapper studentBookingMapper;
     private final MinioService minioService;
     private final TeacherScoreService teacherScoreService;
     private final StringRedisTemplate stringRedisTemplate;
@@ -74,6 +83,9 @@ public class ReportServiceImpl implements ReportService {
                              DepartmentMapper departmentMapper,
                              ExpProjectMapper projectMapper,
                              TeachClassMapper teachClassMapper,
+                             StudentTeachClassMapper studentTeachClassMapper,
+                             ExpSessionMapper expSessionMapper,
+                             StudentBookingMapper studentBookingMapper,
                              MinioService minioService,
                              TeacherScoreService teacherScoreService,
                              StringRedisTemplate stringRedisTemplate,
@@ -85,6 +97,9 @@ public class ReportServiceImpl implements ReportService {
         this.departmentMapper = departmentMapper;
         this.projectMapper = projectMapper;
         this.teachClassMapper = teachClassMapper;
+        this.studentTeachClassMapper = studentTeachClassMapper;
+        this.expSessionMapper = expSessionMapper;
+        this.studentBookingMapper = studentBookingMapper;
         this.minioService = minioService;
         this.teacherScoreService = teacherScoreService;
         this.stringRedisTemplate = stringRedisTemplate;
@@ -114,6 +129,31 @@ public class ReportServiceImpl implements ReportService {
         ExpProject project = projectMapper.selectById(projectNo);
         if (project == null) {
             throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "实验项目不存在！");
+        }
+
+        String classNo = project.getClassNo();
+        if (classNo == null || classNo.isEmpty()) {
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "该实验项目未绑定教学班，无法上传！");
+        }
+
+        Long joinCount = studentTeachClassMapper.selectCount(new QueryWrapper<StudentTeachClass>()
+                .eq("student_no", studentNo)
+                .eq("class_no", classNo));
+        if (joinCount == null || joinCount == 0) {
+            throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您尚未加入该实验所属的教学班！");
+        }
+
+        List<ExpSession> sessions = expSessionMapper.selectList(
+                new QueryWrapper<ExpSession>().eq("project_no", projectNo));
+        if (!sessions.isEmpty()) {
+            List<String> sessionNos = sessions.stream().map(ExpSession::getSessionNo).toList();
+            Long bookCount = studentBookingMapper.selectCount(new QueryWrapper<StudentBooking>()
+                    .eq("student_no", studentNo)
+                    .eq("status", 1)
+                    .in("session_no", sessionNos));
+            if (bookCount == null || bookCount == 0) {
+                throw BusinessException.of(ErrorCode.FORBIDDEN, "非法操作：您尚未预约该实验项目的场次，无法上传报告！");
+            }
         }
 
         String newFileName = UUID.randomUUID().toString().replace("-", "") + suffix;
@@ -168,8 +208,6 @@ public class ReportServiceImpl implements ReportService {
             }
             throw BusinessException.of(ErrorCode.CONCURRENT_CONFLICT, "网络开小差了，请稍后重试！");
         } catch (BusinessException e) {
-            // 预期内的业务拒绝（例如没抢到锁），原样抛出：
-            // 不能落到下面的通用分支，否则会被包装成"数据库保存失败"并误删刚上传的文件
             throw e;
         } catch (Exception e) {
             log.error("数据库写入失败，开始清理 MinIO 孤儿文件: {}", newFileName, e);

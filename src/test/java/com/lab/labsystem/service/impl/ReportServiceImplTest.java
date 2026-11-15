@@ -4,13 +4,17 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lab.labsystem.common.BusinessException;
 import com.lab.labsystem.entity.ExpProject;
 import com.lab.labsystem.entity.ExpReport;
+import com.lab.labsystem.entity.ExpSession;
 import com.lab.labsystem.entity.TeachClass;
 import com.lab.labsystem.mapper.AdminClassMapper;
 import com.lab.labsystem.mapper.DepartmentMapper;
 import com.lab.labsystem.mapper.ExpProjectMapper;
 import com.lab.labsystem.mapper.ExpReportMapper;
+import com.lab.labsystem.mapper.ExpSessionMapper;
 import com.lab.labsystem.mapper.MajorMapper;
+import com.lab.labsystem.mapper.StudentBookingMapper;
 import com.lab.labsystem.mapper.StudentMapper;
+import com.lab.labsystem.mapper.StudentTeachClassMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.service.file.MinioService;
 import com.lab.labsystem.service.report.impl.ReportServiceImpl;
@@ -53,6 +57,9 @@ class ReportServiceImplTest {
     private ExpReportMapper reportMapper;
     private ExpProjectMapper projectMapper;
     private TeachClassMapper teachClassMapper;
+    private StudentTeachClassMapper studentTeachClassMapper;
+    private ExpSessionMapper expSessionMapper;
+    private StudentBookingMapper studentBookingMapper;
     private MinioService minioService;
     private TeacherScoreService teacherScoreService;
     private RedissonClient redissonClient;
@@ -64,6 +71,9 @@ class ReportServiceImplTest {
         reportMapper = mock(ExpReportMapper.class);
         projectMapper = mock(ExpProjectMapper.class);
         teachClassMapper = mock(TeachClassMapper.class);
+        studentTeachClassMapper = mock(StudentTeachClassMapper.class);
+        expSessionMapper = mock(ExpSessionMapper.class);
+        studentBookingMapper = mock(StudentBookingMapper.class);
         minioService = mock(MinioService.class);
         teacherScoreService = mock(TeacherScoreService.class);
         redissonClient = mock(RedissonClient.class);
@@ -78,6 +88,9 @@ class ReportServiceImplTest {
                 mock(DepartmentMapper.class),
                 projectMapper,
                 teachClassMapper,
+                studentTeachClassMapper,
+                expSessionMapper,
+                studentBookingMapper,
                 minioService,
                 teacherScoreService,
                 mock(StringRedisTemplate.class),
@@ -120,9 +133,56 @@ class ReportServiceImplTest {
     }
 
     @Test
+    @DisplayName("未加入教学班时拒绝上传")
+    void rejectUploadIfNotInClass() throws Exception {
+        ExpProject project = new ExpProject();
+        project.setProjectNo("P001");
+        project.setClassNo("C001");
+        when(projectMapper.selectById("P001")).thenReturn(project);
+        
+        when(studentTeachClassMapper.selectCount(any())).thenReturn(0L);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.upload(pdf(), "P001", "S999"));
+
+        assertEquals("非法操作：您尚未加入该实验所属的教学班！", e.getMessage());
+        verify(minioService, never()).upload(any(), anyString());
+    }
+
+    @Test
+    @DisplayName("未预约实验场次时拒绝上传")
+    void rejectUploadIfNotBooked() throws Exception {
+        ExpProject project = new ExpProject();
+        project.setProjectNo("P001");
+        project.setClassNo("C001");
+        when(projectMapper.selectById("P001")).thenReturn(project);
+        
+        when(studentTeachClassMapper.selectCount(any())).thenReturn(1L);
+        
+        ExpSession session = new ExpSession();
+        session.setSessionNo("SE1");
+        when(expSessionMapper.selectList(any())).thenReturn(Collections.singletonList(session));
+        
+        when(studentBookingMapper.selectCount(any())).thenReturn(0L);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.upload(pdf(), "P001", "S001"));
+
+        assertEquals("非法操作：您尚未预约该实验项目的场次，无法上传报告！", e.getMessage());
+        verify(minioService, never()).upload(any(), anyString());
+    }
+
+    @Test
     @DisplayName("没抢到上传锁时应原样拒绝，且不误删 MinIO 文件")
     void lockBusyDoesNotCleanUpFile() throws Exception {
-        when(projectMapper.selectById("P001")).thenReturn(new ExpProject());
+        ExpProject project = new ExpProject();
+        project.setClassNo("C001");
+        when(projectMapper.selectById("P001")).thenReturn(project);
+        
+        when(studentTeachClassMapper.selectCount(any())).thenReturn(1L);
+        
+        when(expSessionMapper.selectList(any())).thenReturn(Collections.emptyList());
+
         when(lock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(false);
 
         BusinessException e = assertThrows(BusinessException.class,
