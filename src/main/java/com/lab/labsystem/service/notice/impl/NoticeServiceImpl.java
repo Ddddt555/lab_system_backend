@@ -1,11 +1,9 @@
 package com.lab.labsystem.service.notice.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.lab.labsystem.common.BatchOperations;
 import com.lab.labsystem.common.QueryLimits;
 import com.lab.labsystem.websocket.GlobalWebSocket;
 import com.lab.labsystem.entity.SysNotice;
-import com.lab.labsystem.entity.SysNoticeRead;
 import com.lab.labsystem.entity.Teacher;
 import com.lab.labsystem.mapper.SysNoticeMapper;
 import com.lab.labsystem.mapper.SysNoticeReadMapper;
@@ -16,7 +14,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -25,7 +22,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 public class NoticeServiceImpl implements NoticeService {
@@ -37,16 +33,13 @@ public class NoticeServiceImpl implements NoticeService {
     private final SysNoticeMapper noticeMapper;
     private final SysNoticeReadMapper noticeReadMapper;
     private final TeacherMapper teacherMapper;
-    private final BatchOperations batchOperations;
 
     public NoticeServiceImpl(SysNoticeMapper noticeMapper,
                              SysNoticeReadMapper noticeReadMapper,
-                             TeacherMapper teacherMapper,
-                             BatchOperations batchOperations) {
+                             TeacherMapper teacherMapper) {
         this.noticeMapper = noticeMapper;
         this.noticeReadMapper = noticeReadMapper;
         this.teacherMapper = teacherMapper;
-        this.batchOperations = batchOperations;
     }
 
     @Override
@@ -93,12 +86,11 @@ public class NoticeServiceImpl implements NoticeService {
             throw new IllegalArgumentException("未登录或身份失效！");
         }
 
+        // 1. 列表查询依然保留 200 条上限，防止内存溢出
         List<SysNotice> notices = QueryLimits.list(noticeMapper, visibleNoticesQuery(role, true));
-        Set<String> readIds = readIdsOf(userNo);
-
-        long unreadCount = notices.stream()
-                .filter(n -> !readIds.contains(n.getNoticeId()))
-                .count();
+        
+        // 2. 未读数直接查库 COUNT，不再受列表限制
+        long unreadCount = noticeMapper.countUnread(userNo, role);
 
         Map<String, Object> result = new HashMap<>();
         result.put("list", notices);
@@ -112,30 +104,9 @@ public class NoticeServiceImpl implements NoticeService {
         if (userNo == null) {
             throw new IllegalArgumentException("未登录");
         }
-
-        List<SysNotice> notices = QueryLimits.list(noticeMapper, visibleNoticesQuery(role, false));
-        Set<String> readIds = readIdsOf(userNo);
-
-        // 解决写放大：收集需要插入的记录，最后批量提交
-        List<SysNoticeRead> readList = new ArrayList<>();
-        LocalDateTime now = LocalDateTime.now();
         
-        for (SysNotice notice : notices) {
-            if (!readIds.contains(notice.getNoticeId())) {
-                SysNoticeRead read = new SysNoticeRead();
-                read.setNoticeId(notice.getNoticeId());
-                read.setUserNo(userNo);
-                read.setReadTime(now);
-                readList.add(read);
-            }
-        }
-        
-        if (!readList.isEmpty()) {
-            // 批量插入（通过适配层，便于单元测试验证）
-            batchOperations.saveBatch(readList);
-        }
-        
-        return readList.size();
+        // 直接利用 SQL 的 INSERT IGNORE ... SELECT 进行原子标记，彻底摆脱 200 条上限
+        return noticeReadMapper.markAllRead(userNo, role);
     }
 
     /**
@@ -153,13 +124,5 @@ public class NoticeServiceImpl implements NoticeService {
         }
         qw.orderByDesc("create_time");
         return qw;
-    }
-
-    private Set<String> readIdsOf(String userNo) {
-        List<SysNoticeRead> reads = QueryLimits.list(noticeReadMapper,
-                new QueryWrapper<SysNoticeRead>().eq("user_no", userNo));
-        return reads.stream()
-                .map(SysNoticeRead::getNoticeId)
-                .collect(Collectors.toSet());
     }
 }

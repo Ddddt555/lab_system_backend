@@ -1,9 +1,7 @@
 package com.lab.labsystem.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.lab.labsystem.common.BatchOperations;
 import com.lab.labsystem.entity.SysNotice;
-import com.lab.labsystem.entity.SysNoticeRead;
 import com.lab.labsystem.entity.Teacher;
 import com.lab.labsystem.mapper.SysNoticeMapper;
 import com.lab.labsystem.mapper.SysNoticeReadMapper;
@@ -16,7 +14,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,22 +23,17 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
  * 通知业务规则的单元测试。
- *
- * <p>这些规则原先写在 {@code NoticeController} 里，无法脱离 Spring 上下文测试。
- * 下沉到 service 后用 mock 直接覆盖，作为重构前后的行为契约。
  */
 class NoticeServiceImplTest {
 
     private SysNoticeMapper noticeMapper;
     private SysNoticeReadMapper noticeReadMapper;
     private TeacherMapper teacherMapper;
-    private BatchOperations batchOperations;
     private NoticeServiceImpl service;
 
     @BeforeEach
@@ -49,8 +41,7 @@ class NoticeServiceImplTest {
         noticeMapper = mock(SysNoticeMapper.class);
         noticeReadMapper = mock(SysNoticeReadMapper.class);
         teacherMapper = mock(TeacherMapper.class);
-        batchOperations = mock(BatchOperations.class);
-        service = new NoticeServiceImpl(noticeMapper, noticeReadMapper, teacherMapper, batchOperations);
+        service = new NoticeServiceImpl(noticeMapper, noticeReadMapper, teacherMapper);
     }
 
     private static SysNotice notice(String id) {
@@ -119,50 +110,30 @@ class NoticeServiceImplTest {
     }
 
     @Test
-    @DisplayName("未读数量按已读记录计算")
+    @DisplayName("未读数量直接查库统计")
     @SuppressWarnings("unchecked")
-    void unreadCountExcludesReadNotices() {
+    void unreadCountUsesDatabaseCount() {
         Page<SysNotice> noticePage = new Page<>(1, 200);
         noticePage.setRecords(Arrays.asList(notice("N1"), notice("N2"), notice("N3")));
         doReturn(noticePage).when(noticeMapper).selectPage(any(), any());
 
-        SysNoticeRead read = new SysNoticeRead();
-        read.setNoticeId("N1");
-        Page<SysNoticeRead> readPage = new Page<>(1, 200);
-        readPage.setRecords(Collections.singletonList(read));
-        doReturn(readPage).when(noticeReadMapper).selectPage(any(), any());
+        when(noticeMapper.countUnread("S001", "student")).thenReturn(250L);
 
         Map<String, Object> result = service.listForUser("student", "S001");
 
         assertEquals(3, ((java.util.List<?>) result.get("list")).size());
-        assertEquals(2L, result.get("unreadCount"));
+        assertEquals(250L, result.get("unreadCount"));
     }
 
     @Test
-    @DisplayName("标记已读只插入未读的记录")
-    @SuppressWarnings("unchecked")
-    void markAllReadSkipsAlreadyRead() {
-        Page<SysNotice> noticePage = new Page<>(1, 200);
-        noticePage.setRecords(Arrays.asList(notice("N1"), notice("N2")));
-        doReturn(noticePage).when(noticeMapper).selectPage(any(), any());
-
-        SysNoticeRead read = new SysNoticeRead();
-        read.setNoticeId("N1");
-        Page<SysNoticeRead> readPage = new Page<>(1, 200);
-        readPage.setRecords(Collections.singletonList(read));
-        doReturn(readPage).when(noticeReadMapper).selectPage(any(), any());
+    @DisplayName("全部已读直接执行聚合 SQL")
+    void markAllReadUsesDatabaseInsert() {
+        when(noticeReadMapper.markAllRead("S001", "student")).thenReturn(15);
 
         int count = service.markAllRead("student", "S001");
 
-        assertEquals(1, count);
-
-        // 只应把未读的那条（N2）交给批量插入，且不能退化为逐条 insert
-        ArgumentCaptor<java.util.Collection<SysNoticeRead>> captor =
-                ArgumentCaptor.forClass(java.util.Collection.class);
-        verify(batchOperations).saveBatch(captor.capture());
-        assertEquals(1, captor.getValue().size());
-        assertEquals("N2", captor.getValue().iterator().next().getNoticeId());
-        verify(noticeReadMapper, never()).insert(any(SysNoticeRead.class));
+        assertEquals(15, count);
+        verify(noticeReadMapper).markAllRead("S001", "student");
     }
 
     @Test
