@@ -3,6 +3,7 @@ package com.lab.labsystem.controller;
 import com.lab.labsystem.annotation.RateLimit;
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.Result;
+import com.lab.labsystem.dto.request.SignRequestDTO;
 import com.lab.labsystem.dto.request.UpdatePasswordDTO;
 import com.lab.labsystem.service.attendance.AttendanceService;
 import com.lab.labsystem.service.student.CourseSelectionService;
@@ -126,11 +127,10 @@ public class StudentController {
     @Operation(summary = "学生签到")
     @PostMapping("/attendance/sign")
     public Result<String> signIn(
-            @RequestParam String sessionNo,
-            @RequestParam String code,
+            @Valid @RequestBody SignRequestDTO dto,
             HttpServletRequest request) {
         String studentNo = (String) request.getAttribute("currentUserNo");
-        return Result.success(attendanceService.signIn(studentNo, sessionNo, code));
+        return Result.success(attendanceService.signIn(studentNo, dto.getSessionNo(), dto.getCode()));
     }
 
     @Operation(summary = "加入候补队列")

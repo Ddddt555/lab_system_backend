@@ -4,10 +4,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-import com.lab.labsystem.dto.request.ProjectCreateDTO;
-import com.lab.labsystem.dto.request.SessionCreateDTO;
-import com.lab.labsystem.dto.request.UpdatePasswordDTO;
-import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +17,11 @@ import org.springframework.web.multipart.MultipartFile;
 import com.lab.labsystem.annotation.LogRecord;
 import com.lab.labsystem.annotation.RequireRole;
 import com.lab.labsystem.common.Result;
+import com.lab.labsystem.dto.request.ProjectCreateDTO;
+import com.lab.labsystem.dto.request.ScoreRequestDTO;
+import com.lab.labsystem.dto.request.SessionCreateDTO;
+import com.lab.labsystem.dto.request.UpdatePasswordDTO;
+import com.lab.labsystem.dto.request.WeightRequestDTO;
 import com.lab.labsystem.entity.LabRoom;
 import com.lab.labsystem.entity.SysSemester;
 import com.lab.labsystem.service.attendance.AttendanceService;
@@ -35,6 +36,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
 
 @Tag(name = "教师端接口", description = "包含实验项目发布、场次排课、成绩管理、数据统计等功能")
 @RequireRole("teacher")
@@ -157,24 +159,17 @@ public class TeacherController {
     @Operation(summary = "录入平时成绩并自动计算总评")
     @LogRecord("录入平时成绩")
     @PostMapping("/score/save")
-    public Result<String> saveScore(@RequestParam String studentNo,
-                                    @RequestParam String classNo,
-                                    @RequestParam Double dailyScore,
-                                    HttpServletRequest request) {
+    public Result<String> saveScore(@Valid @RequestBody ScoreRequestDTO dto, HttpServletRequest request) {
         String currentWorkNo = (String) request.getAttribute("currentUserNo");
-        return Result.success(teacherScoreService.saveScore(currentWorkNo, studentNo, classNo, dailyScore));
+        return Result.success(teacherScoreService.saveScore(currentWorkNo, dto.getStudentNo(), dto.getClassNo(), dto.getDailyScore()));
     }
 
     @Operation(summary = "修改成绩权重并重算")
     @LogRecord("修改成绩权重")
     @PostMapping("/score/weight")
-    public Result<String> updateWeight(
-            @RequestParam String classNo,
-            @RequestParam Integer dailyWeight,
-            @RequestParam Integer reportWeight,
-            HttpServletRequest request) {
+    public Result<String> updateWeight(@Valid @RequestBody WeightRequestDTO dto, HttpServletRequest request) {
         String workNo = (String) request.getAttribute("currentUserNo");
-        return Result.success(teacherScoreService.updateWeight(workNo, classNo, dailyWeight, reportWeight));
+        return Result.success(teacherScoreService.updateWeight(workNo, dto.getClassNo(), dto.getDailyWeight(), dto.getReportWeight()));
     }
 
     // ================= 5. 修改密码 =================
