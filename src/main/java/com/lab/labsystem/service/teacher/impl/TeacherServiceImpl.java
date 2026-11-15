@@ -123,6 +123,9 @@ public class TeacherServiceImpl implements TeacherService {
     @Override
     public void deleteTeacher(String workNo) {
         teacherMapper.deleteById(workNo);
+        
+        // 强制该教师所有设备下线，立即失效所有 AccessToken 和 RefreshToken
+        tokenService.revokeAllDevices(workNo);
     }
     
     @Override

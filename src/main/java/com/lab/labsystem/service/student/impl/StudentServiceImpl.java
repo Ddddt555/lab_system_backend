@@ -161,6 +161,9 @@ public class StudentServiceImpl implements StudentService {
     @Override
     public void deleteStudent(String studentNo) {
         studentMapper.deleteById(studentNo);
+        
+        //强制该学生所有设备下线，立即失效所有 AccessToken 和 RefreshToken
+        tokenService.revokeAllDevices(studentNo);
     }
 
     @Override

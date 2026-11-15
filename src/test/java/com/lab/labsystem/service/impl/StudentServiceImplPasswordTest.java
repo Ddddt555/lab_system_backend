@@ -95,4 +95,13 @@ class StudentServiceImplPasswordTest {
         verify(cache).evict("student", "S001");
         verify(tokenService).revokeAllDevices("S001");
     }
+
+    @Test
+    @DisplayName("删除学生时同步撤销其所有会话")
+    void deleteStudentRevokesAllDevices() {
+        service.deleteStudent("S001");
+        
+        verify(studentMapper).deleteById("S001");
+        verify(tokenService).revokeAllDevices("S001");
+    }
 }

@@ -120,4 +120,13 @@ class TeacherServiceImplPasswordTest {
         assertEquals("encoded-default-pwd", savedTeacher.getPassword());
         assertEquals(1, savedTeacher.getMustChangePassword());
     }
+
+    @Test
+    @DisplayName("删除教师时同步撤销其所有会话")
+    void deleteTeacherRevokesAllDevices() {
+        service.deleteTeacher("T001");
+        
+        verify(teacherMapper).deleteById("T001");
+        verify(tokenService).revokeAllDevices("T001");
+    }
 }

@@ -263,6 +263,37 @@ public class SecurityHardeningTest {
         assertEquals(401, afterLogout.getStatusCode().value(), "登出后，旧 Access Token 应立即失效返回 401！");
     }
 
+    @Test
+    @Order(8)
+    @DisplayName("7. 验证删除教师账户后旧 Access Token 立即失效")
+    void testDeleteAccountInvalidatesToken() {
+        // 1. 获取管理员 Token 用于执行删除
+        String adminToken = fetchTestToken("admin", "admin");
+        assertNotNull(adminToken, "管理员 Token 获取失败");
+
+        String checkUrl = "/api/teacher/my-classes";
+        HttpHeaders teacherHeaders = getHeaders(teacherToken);
+        HttpEntity<String> teacherEntity = new HttpEntity<>(teacherHeaders);
+
+        // 2. 验证删除前，该教师的 Token 是有效的
+        ResponseEntity<Result> beforeDelete = restTemplate.exchange(checkUrl, HttpMethod.GET, teacherEntity, Result.class);
+        assertEquals(200, beforeDelete.getStatusCode().value(), "删除前，教师 Token 应有效");
+
+        // 3. 调用管理员接口删除该教师
+        HttpHeaders adminHeaders = getHeaders(adminToken);
+        HttpEntity<String> adminEntity = new HttpEntity<>(adminHeaders);
+        String deleteUrl = "/api/admin/teacher/delete?workNo=" + realTeacherNo;
+        restTemplate.exchange(deleteUrl, HttpMethod.DELETE, adminEntity, Result.class);
+
+        // 4. 验证删除后，该教师旧 Token 被立即拦截返回 401
+        ResponseEntity<Result> afterDelete = restTemplate.exchange(checkUrl, HttpMethod.GET, teacherEntity, Result.class);
+        assertEquals(401, afterDelete.getStatusCode().value(), "删除后，旧 Access Token 应立即失效返回 401！");
+
+        // 5. 恢复测试数据，避免影响其它用例或测试环境（调用管理员恢复接口）
+        String restoreUrl = "/api/admin/teacher/restore?workNo=" + realTeacherNo;
+        restTemplate.postForEntity(restoreUrl, adminEntity, Result.class);
+    }
+
     private String fetchTestToken(String username, String role) {
         String url = "/api/login/test?username=" + username + "&role=" + role;
         ResponseEntity<Result> response = restTemplate.postForEntity(url, null, Result.class);
