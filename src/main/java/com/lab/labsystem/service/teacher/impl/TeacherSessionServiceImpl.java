@@ -32,6 +32,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +50,9 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
     private final StudentBookingMapper bookingMapper;
     private final StudentMapper studentMapper;
     private final NumberGenerator numberGenerator;
+
+    // 节次白名单
+    private static final List<String> VALID_PERIODS = Arrays.asList("1-2节", "3-4节", "5-6节", "7-8节", "9-10节");
 
     public TeacherSessionServiceImpl(ExpProjectMapper projectMapper,
                                      TeachClassMapper teachClassMapper,
@@ -97,7 +101,27 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
             throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课容量不能超过实验室容量！");
         }
 
-        // 5. 三重冲突校验
+        // 5. 参数合法性校验
+        SysSemester semester = semesterMapper.selectById(session.getSemester());
+        if (semester == null) {
+            throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "排课失败：该学期配置不存在！");
+        }
+        if (session.getWeekNum() == null || session.getWeekNum() < 1 || session.getWeekNum() > semester.getTotalWeeks()) {
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：周次必须在 1 到 " + semester.getTotalWeeks() + " 之间！");
+        }
+        if (session.getDayOfWeek() == null || session.getDayOfWeek() < 1 || session.getDayOfWeek() > 7) {
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：星期必须在 1 到 7 之间！");
+        }
+        if (session.getPeriod() == null || !VALID_PERIODS.contains(session.getPeriod())) {
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：非法的节次！");
+        }
+
+        LocalDateTime absoluteTime = calculateAbsoluteTime(semester, session.getWeekNum(), session.getDayOfWeek(), session.getPeriod());
+        if (absoluteTime.isBefore(LocalDateTime.now())) {
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：排课时间不能早于当前时间！");
+        }
+
+        // 6. 三重冲突校验
         QueryWrapper<ExpSession> conflictQw = new QueryWrapper<ExpSession>()
                 .eq("semester", session.getSemester())
                 .eq("week_num", session.getWeekNum())
@@ -122,11 +146,9 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
             }
         }
 
-        // 6. 生成场次号、计算绝对时间、初始剩余机位
+        // 7. 生成场次号、计算绝对时间、初始剩余机位
         session.setSessionNo(numberGenerator.generateSessionNo());
-        session.setSessionTime(calculateAbsoluteTime(
-                session.getSemester(), session.getWeekNum(),
-                session.getDayOfWeek(), session.getPeriod()));
+        session.setSessionTime(absoluteTime);
         session.setRemainingSeats(session.getCapacity());
 
         sessionMapper.insert(session);
@@ -242,12 +264,8 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
     /**
      * 由“学期 + 周次 + 星期 + 节次”换算出绝对时间，用于排序和展示。
      */
-    private LocalDateTime calculateAbsoluteTime(String semesterName, Integer weekNum,
+    private LocalDateTime calculateAbsoluteTime(SysSemester semester, Integer weekNum,
                                                 Integer dayOfWeek, String period) {
-        SysSemester semester = semesterMapper.selectById(semesterName);
-        if (semester == null) {
-            throw BusinessException.of(ErrorCode.DATA_NOT_FOUND, "排课失败：该学期配置不存在！");
-        }
         LocalDate targetDate = semester.getStartDate()
                 .plusWeeks(weekNum - 1).plusDays(dayOfWeek - 1);
 
@@ -258,7 +276,8 @@ public class TeacherSessionServiceImpl implements TeacherSessionService {
             case "5-6节": targetTime = LocalTime.of(14, 0); break;
             case "7-8节": targetTime = LocalTime.of(16, 0); break;
             case "9-10节": targetTime = LocalTime.of(19, 0); break;
-            default: targetTime = LocalTime.of(8, 0);
+            default: 
+                throw BusinessException.of(ErrorCode.BAD_REQUEST, "排课失败：非法的节次！");
         }
         return LocalDateTime.of(targetDate, targetTime);
     }

@@ -75,7 +75,7 @@ class TeacherSessionServiceImplTest {
         dto.setProjectNo(projectNo);
         dto.setRoomNo(roomNo);
         dto.setCapacity(capacity);
-        dto.setSemester("2025-2026-1");
+        dto.setSemester("2030-2031-1");
         dto.setWeekNum(3);
         dto.setDayOfWeek(2);
         dto.setPeriod("3-4节");
@@ -102,6 +102,18 @@ class TeacherSessionServiceImplTest {
         r.setRoomName("一号实验室");
         r.setCapacity(capacity);
         return r;
+    }
+
+    private void mockBaseValidData() {
+        when(projectMapper.selectById("P001")).thenReturn(project("C001"));
+        when(teachClassMapper.selectById("C001")).thenReturn(teachClass("T001"));
+        when(labRoomMapper.selectById("R001")).thenReturn(room(50));
+        
+        SysSemester semester = new SysSemester();
+        semester.setSemesterName("2030-2031-1");
+        semester.setStartDate(LocalDate.of(2030, 9, 1));
+        semester.setTotalWeeks(20);
+        when(semesterMapper.selectById("2030-2031-1")).thenReturn(semester);
     }
 
     @Test
@@ -155,11 +167,53 @@ class TeacherSessionServiceImplTest {
     }
 
     @Test
+    @DisplayName("周次超出学期总周数时拒绝排课")
+    void rejectInvalidWeekNum() {
+        mockBaseValidData();
+        SessionCreateDTO req = request("P001", "R001", 30);
+        req.setWeekNum(25);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.addSession(req, "T001"));
+
+        assertEquals("排课失败：周次必须在 1 到 20 之间！", e.getMessage());
+    }
+
+    @Test
+    @DisplayName("非法节次时拒绝排课")
+    void rejectInvalidPeriod() {
+        mockBaseValidData();
+        SessionCreateDTO req = request("P001", "R001", 30);
+        req.setPeriod("半夜12点");
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.addSession(req, "T001"));
+
+        assertEquals("排课失败：非法的节次！", e.getMessage());
+    }
+
+    @Test
+    @DisplayName("排课时间早于当前时间时拒绝排课")
+    void rejectPastTime() {
+        mockBaseValidData();
+        SessionCreateDTO req = request("P001", "R001", 30);
+        
+        SysSemester pastSemester = new SysSemester();
+        pastSemester.setSemesterName("2030-2031-1");
+        pastSemester.setStartDate(LocalDate.of(2020, 9, 1));
+        pastSemester.setTotalWeeks(20);
+        when(semesterMapper.selectById("2030-2031-1")).thenReturn(pastSemester);
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> service.addSession(req, "T001"));
+
+        assertEquals("排课失败：排课时间不能早于当前时间！", e.getMessage());
+    }
+
+    @Test
     @DisplayName("教师同一时段已有排课")
     void rejectTeacherConflict() {
-        when(projectMapper.selectById("P001")).thenReturn(project("C001"));
-        when(teachClassMapper.selectById("C001")).thenReturn(teachClass("T001"));
-        when(labRoomMapper.selectById("R001")).thenReturn(room(50));
+        mockBaseValidData();
 
         ExpSession exist = new ExpSession();
         exist.setWorkNo("T001");
@@ -174,9 +228,7 @@ class TeacherSessionServiceImplTest {
     @Test
     @DisplayName("实验室同一时段已被占用")
     void rejectRoomConflict() {
-        when(projectMapper.selectById("P001")).thenReturn(project("C001"));
-        when(teachClassMapper.selectById("C001")).thenReturn(teachClass("T001"));
-        when(labRoomMapper.selectById("R001")).thenReturn(room(50));
+        mockBaseValidData();
 
         ExpSession exist = new ExpSession();
         exist.setWorkNo("T999");
@@ -192,9 +244,7 @@ class TeacherSessionServiceImplTest {
     @Test
     @DisplayName("同一教学班在此时段已有排课")
     void rejectClassConflict() {
-        when(projectMapper.selectById("P001")).thenReturn(project("C001"));
-        when(teachClassMapper.selectById("C001")).thenReturn(teachClass("T001"));
-        when(labRoomMapper.selectById("R001")).thenReturn(room(50));
+        mockBaseValidData();
 
         ExpSession exist = new ExpSession();
         exist.setWorkNo("T999");
@@ -216,30 +266,23 @@ class TeacherSessionServiceImplTest {
     @Test
     @DisplayName("排课成功：生成场次号、换算绝对时间、剩余座位等于容量")
     void addSessionSuccess() {
-        when(projectMapper.selectById("P001")).thenReturn(project("C001"));
-        when(teachClassMapper.selectById("C001")).thenReturn(teachClass("T001"));
-        when(labRoomMapper.selectById("R001")).thenReturn(room(50));
+        mockBaseValidData();
         when(sessionMapper.selectList(any())).thenReturn(Collections.emptyList());
-        when(numberGenerator.generateSessionNo()).thenReturn("SE2025001");
-
-        SysSemester semester = new SysSemester();
-        semester.setSemesterName("2025-2026-1");
-        semester.setStartDate(LocalDate.of(2025, 9, 1));
-        when(semesterMapper.selectById("2025-2026-1")).thenReturn(semester);
+        when(numberGenerator.generateSessionNo()).thenReturn("SE2030001");
 
         SessionCreateDTO req = request("P001", "R001", 30);
         String msg = service.addSession(req, "T001");
 
-        assertEquals("场次安排成功！场次号为：SE2025001", msg);
+        assertEquals("场次安排成功！场次号为：SE2030001", msg);
 
         ArgumentCaptor<ExpSession> captor = ArgumentCaptor.forClass(ExpSession.class);
         verify(sessionMapper).insert(captor.capture());
         
         ExpSession saved = captor.getValue();
         assertEquals("T001", saved.getWorkNo());
-        assertEquals("SE2025001", saved.getSessionNo());
+        assertEquals("SE2030001", saved.getSessionNo());
         assertEquals(30, saved.getRemainingSeats());
-        assertEquals(LocalDateTime.of(2025, 9, 16, 10, 0), saved.getSessionTime());
+        assertEquals(LocalDateTime.of(2030, 9, 16, 10, 0), saved.getSessionTime());
     }
 
     @Test
@@ -248,9 +291,7 @@ class TeacherSessionServiceImplTest {
         when(projectMapper.selectById("P001")).thenReturn(project("C001"));
         when(teachClassMapper.selectById("C001")).thenReturn(teachClass("T001"));
         when(labRoomMapper.selectById("R001")).thenReturn(room(50));
-        when(sessionMapper.selectList(any())).thenReturn(Collections.emptyList());
-        when(numberGenerator.generateSessionNo()).thenReturn("SE2025001");
-        when(semesterMapper.selectById("2025-2026-1")).thenReturn(null);
+        when(semesterMapper.selectById("2030-2031-1")).thenReturn(null);
 
         BusinessException e = assertThrows(BusinessException.class,
                 () -> service.addSession(request("P001", "R001", 30), "T001"));
