@@ -16,19 +16,23 @@ import com.lab.labsystem.mapper.StudentMapper;
 import com.lab.labsystem.mapper.SysSemesterMapper;
 import com.lab.labsystem.mapper.TeachClassMapper;
 import com.lab.labsystem.service.teacher.impl.TeacherSessionServiceImpl;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -47,10 +51,12 @@ class TeacherSessionServiceImplTest {
     private SysSemesterMapper semesterMapper;
     private StudentBookingMapper bookingMapper;
     private NumberGenerator numberGenerator;
+    private RedissonClient redissonClient;
+    private RLock lock;
     private TeacherSessionServiceImpl service;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws InterruptedException {
         projectMapper = mock(ExpProjectMapper.class);
         teachClassMapper = mock(TeachClassMapper.class);
         labRoomMapper = mock(LabRoomMapper.class);
@@ -58,6 +64,14 @@ class TeacherSessionServiceImplTest {
         semesterMapper = mock(SysSemesterMapper.class);
         bookingMapper = mock(StudentBookingMapper.class);
         numberGenerator = mock(NumberGenerator.class);
+        
+        redissonClient = mock(RedissonClient.class);
+        lock = mock(RLock.class);
+
+        // 模拟获取锁成功
+        when(redissonClient.getLock(anyString())).thenReturn(lock);
+        when(lock.tryLock(anyLong(), anyLong(), any(TimeUnit.class))).thenReturn(true);
+        when(lock.isHeldByCurrentThread()).thenReturn(true);
 
         service = new TeacherSessionServiceImpl(
                 projectMapper,
@@ -68,6 +82,9 @@ class TeacherSessionServiceImplTest {
                 bookingMapper,
                 mock(StudentMapper.class),
                 numberGenerator);
+                
+        // 注入 RedissonClient
+        ReflectionTestUtils.setField(service, "redissonClient", redissonClient);
     }
 
     private static SessionCreateDTO request(String projectNo, String roomNo, int capacity) {
@@ -283,6 +300,9 @@ class TeacherSessionServiceImplTest {
         assertEquals("SE2030001", saved.getSessionNo());
         assertEquals(30, saved.getRemainingSeats());
         assertEquals(LocalDateTime.of(2030, 9, 16, 10, 0), saved.getSessionTime());
+        
+        // 验证释放了锁
+        verify(lock).unlock();
     }
 
     @Test
