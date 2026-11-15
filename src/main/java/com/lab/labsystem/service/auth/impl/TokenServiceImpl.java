@@ -1,6 +1,7 @@
 package com.lab.labsystem.service.auth.impl;
 
 import com.lab.labsystem.common.BusinessException;
+import com.lab.labsystem.common.DeviceIdValidator;
 import com.lab.labsystem.common.ErrorCode;
 import com.lab.labsystem.common.JwtUtil;
 import com.lab.labsystem.entity.SysLog;
@@ -87,8 +88,8 @@ public class TokenServiceImpl implements TokenService {
 
     @Override
     public Map<String, Object> createTokenPair(String userNo, String role, String deviceId) {
-        if (deviceId == null || deviceId.trim().isEmpty()) {
-            throw BusinessException.of(ErrorCode.BAD_REQUEST, "设备标识不能为空，禁止下发 Token！");
+        if (!DeviceIdValidator.isValid(deviceId)) {
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "设备标识格式非法，禁止下发 Token！");
         }
 
         String accessToken = JwtUtil.generateAccessToken(userNo, role, deviceId);
@@ -131,8 +132,8 @@ public class TokenServiceImpl implements TokenService {
         if (refreshToken == null || refreshToken.isEmpty()) {
             throw BusinessException.of(ErrorCode.BAD_REQUEST, "缺少刷新令牌！");
         }
-        if (deviceId == null || deviceId.trim().isEmpty()) {
-            throw BusinessException.of(ErrorCode.BAD_REQUEST, "缺少设备标识，请求非法！");
+        if (!DeviceIdValidator.isValid(deviceId)) {
+            throw BusinessException.of(ErrorCode.BAD_REQUEST, "设备标识格式非法，请求拒绝！");
         }
 
         try {
